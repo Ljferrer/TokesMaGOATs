@@ -36,7 +36,7 @@
 <script>
 let selectedDay=null;let data;const $=id=>document.getElementById(id),fmt=n=>new Intl.NumberFormat().format(n),short=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
 function stat(id,n){$(id).textContent=short(n);$(id).title=fmt(n)+' tokens'}
-function breakdown(id,values){$(id).replaceChildren();const max=Math.max(1,...Object.values(values));Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([name,n])=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span'),value=document.createElement('span');label.textContent=name;value.textContent=short(n);value.title=fmt(n);row.append(label,value);const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=(n/max*100)+'%';bar.append(fill);$(id).append(row,bar)})}
+function breakdown(id,values){$(id).replaceChildren();const max=Math.max(1,...Object.values(values));Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([name,n])=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span'),value=document.createElement('span');label.textContent=name;value.textContent=short(n);value.title=fmt(n);row.append(label,value);const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=(n/max*100)+'%';if(id==='models')fill.style.background=modelColor(name);bar.append(fill);$(id).append(row,bar)})}
 const ROLES=['main','subagent','auditor','other'],roleName=role=>({main:'Main chat',subagent:'Subagent',auditor:'Auditor',other:'Other'}[role]);
 const DAY=86400000;
 const utc=key=>new Date(key+'T00:00:00Z');
@@ -77,17 +77,38 @@ function stackedWeeks(days,start,end){
   }
   return [...result.values()].map(w=>({...w,segments:[...w.segments.values()].filter(s=>s.total>0).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||a.model.localeCompare(b.model))}));
 }
+const MODEL_COLORS={
+  'claude-fable-5':'#a6b3d9','claude-fable-5-1':'#d7a292','claude-haiku-4-5-20251001':'#8ebfa8',
+  'claude-opus-4-8':'#b09ac7','claude-opus-5':'#c7c987','claude-sonnet-5':'#83b5c0',
+  'gpt-5.5':'#9ebd85','gpt-5.6-sol':'#b2a6d4','gpt-5.6-terra':'#d3b88c','gpt-6-astra':'#83c2b4',
+  'codex-auto-review':'#c19baa','unknown':'#9aaba1'
+};
+function modelColor(model){
+  if(Object.hasOwn(MODEL_COLORS,model))return MODEL_COLORS[model];
+  let hash=2166136261;for(const char of model)hash=Math.imul(hash^char.codePointAt(0),16777619);
+  return `hsl(${(hash>>>0)%360} 35% 65%)`;
+}
 function modelColors(){
-  const names=[...new Set(Object.values(data.days).flatMap(d=>Object.values(d.breakdown||{}).flatMap(group=>Object.keys(group))))].sort();
-  const palette=['#a6b3d9','#d7a292','#8ebfa8','#b09ac7','#c7c987','#83b5c0','#9ebd85','#b2a6d4','#d3b88c','#83c2b4','#c19baa','#9aaba1'];
-  return new Map(names.map((model,i)=>[model,palette[i%palette.length]]));
+  const names=[...new Set([...Object.keys(data.models||{}),...Object.keys(data.costs?.models||{}),...Object.values(data.days).flatMap(d=>Object.values(d.breakdown||{}).flatMap(group=>Object.keys(group)))])].sort();
+  return new Map(names.map(model=>[model,modelColor(model)]));
+}
+function roleSwatch(role){return 'swatch'+({subagent:' hatched',auditor:' dotted',other:' crossed'}[role]||'')}
+function modelPattern(defs,prefix,model,role){
+  if(role==='main')return modelColor(model);
+  const key=Array.from(model,c=>c.codePointAt(0).toString(16)).join('-'),id=`${prefix}-${key}-${role}`;
+  const pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse'});
+  pattern.append(chartNode('rect',{width:6,height:6,fill:modelColor(model)}));
+  if(role==='auditor')pattern.append(chartNode('circle',{cx:3,cy:3,r:.75,fill:'#101411',style:'fill:#101411;opacity:.4'}));
+  else if(role==='other')pattern.append(chartNode('path',{d:'M 0 0 L 6 6 M 6 0 L 0 6',stroke:'#101411','stroke-opacity':.25,'stroke-width':.7}));
+  else{pattern.setAttribute('patternTransform','rotate(45)');pattern.append(chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.28,'stroke-width':1}))}
+  defs.append(pattern);return `url(#${id})`;
 }
 function renderStackLegend(series,colors){
   $('weeklyLegend').replaceChildren();$('weeklyModelLegend').replaceChildren();
   const total=series.reduce((n,w)=>n+w.total,0);
   for(const role of ROLES){
     const group=document.createElement('div');group.className='legend-group';
-    const heading=document.createElement('strong'),swatch=document.createElement('i');swatch.className='swatch'+(role==='subagent'?' hatched':role==='auditor'?' dotted':role==='other'?' crossed':'');swatch.style.backgroundColor='#b5c6aa';
+    const heading=document.createElement('strong'),swatch=document.createElement('i');swatch.className=roleSwatch(role);swatch.style.backgroundColor='#b5c6aa';
     const name=document.createElement('span');name.textContent=role==='subagent'?'Task subagents':role==='auditor'?'Auditors':roleName(role);heading.append(swatch,name);
     const n=series.reduce((sum,w)=>sum+w[role],0),value=document.createElement('span');value.className='role-value';value.textContent=short(n);value.title=fmt(n)+' tokens';
     const share=document.createElement('span');share.className='role-share';share.textContent=(total?n/total*100:0).toFixed(1)+'%';group.append(heading,value,share);$('weeklyLegend').append(group);
@@ -116,7 +137,7 @@ function drawChart(id,series,bar=false,unit='tokens'){
   for(let i=0;i<=4;i++){const n=max*i/4;svg.append(chartNode('line',{x1:left,x2:width-right,y1:y(n),y2:y(n),class:'guide'}),chartNode('text',{x:left-8,y:y(n)+4,'text-anchor':'end'},labels[i]))}
   if(bar){
     const colors=modelColors(),defs=chartNode('defs'),patterns=new Map();
-    [...colors].forEach(([model,color],i)=>{const id='subagent-model-'+i,pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.28,'stroke-width':1}));defs.append(pattern);const audit=chartNode('pattern',{id:id+'-auditor',width:6,height:6,patternUnits:'userSpaceOnUse'});audit.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('circle',{cx:3,cy:3,r:.75,fill:'#101411',style:'fill:#101411;opacity:.4'}));defs.append(audit);const other=chartNode('pattern',{id:id+'-other',width:6,height:6,patternUnits:'userSpaceOnUse'});other.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('path',{d:'M 0 0 L 6 6 M 6 0 L 0 6',stroke:'#101411','stroke-opacity':.25,'stroke-width':.7}));defs.append(other);patterns.set(model,id)});svg.append(defs);
+    for(const model of colors.keys())for(const role of ROLES)patterns.set(model+'|'+role,modelPattern(defs,'subagent-model',model,role));svg.append(defs);
     renderStackLegend(series,colors);
     series.forEach((d,i)=>{
       const step=w/series.length,barWidth=Math.min(42,Math.max(1,step*.7)),barX=left+i*step+(step-barWidth)/2,clipId='week-clip-'+i;let base=0;
@@ -124,7 +145,7 @@ function drawChart(id,series,bar=false,unit='tokens'){
       svg.append(chartNode('text',{x:barX+barWidth/2,y:y(d.total)-9,'text-anchor':'middle',class:'bar-total'},short(d.total)));
       for(const segment of d.segments){
         const label=`Week of ${d.date} · ${roleName(segment.role)} · ${segment.model} · ${fmt(segment.total)} tokens (${(segment.total/d.total*100).toFixed(1)}% of week)`;
-        const rect=chartNode('rect',{x:barX,y:y(base+segment.total),width:barWidth,'clip-path':`url(#${clipId})`,height:h*segment.total/max,class:'segment',fill:segment.role==='main'?colors.get(segment.model):`url(#${patterns.get(segment.model)}${segment.role==='auditor'?'-auditor':segment.role==='other'?'-other':''})`,tabindex:0,'aria-label':label});
+        const rect=chartNode('rect',{x:barX,y:y(base+segment.total),width:barWidth,'clip-path':`url(#${clipId})`,height:h*segment.total/max,class:'segment',fill:patterns.get(segment.model+'|'+segment.role),tabindex:0,'aria-label':label});
         rect.append(chartNode('title',{},label));rect.onmouseenter=rect.onfocus=()=>{$('weeklyDetail').textContent=label};svg.append(rect);base+=segment.total;
       }
       if(d.main&&d.subagent)svg.append(chartNode('line',{x1:barX,x2:barX+barWidth,y1:y(d.main),y2:y(d.main),stroke:'#101411','stroke-opacity':.55,'stroke-width':1,'pointer-events':'none'}));
@@ -155,17 +176,13 @@ function renderDay(key){
   const scale=document.createElement('p');scale.className='muted';scale.textContent='Usage: '+(ratio*100).toFixed(1)+'% of your largest day ('+short(largest)+' tokens).'+' Diameter scales linearly from 100 to 200 pixels.';$('dayPieLegend').append(scale);
   svg.append(defs);let angle=-Math.PI/2;
   segments.forEach((segment,i)=>{
-    const color=colors.get(segment.model),id='day-pattern-'+i;
-    if(segment.role!=='main'){
-      const pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});
-      pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.28,'stroke-width':1}));if(segment.role==='auditor'){pattern.replaceChildren(chartNode('rect',{width:6,height:6,fill:color}),chartNode('circle',{cx:3,cy:3,r:.75,fill:'#101411',style:'fill:#101411;opacity:.4'}))}if(segment.role==='other'){pattern.replaceChildren(chartNode('rect',{width:6,height:6,fill:color}),chartNode('path',{d:'M 0 0 L 6 6 M 6 0 L 0 6',stroke:'#101411','stroke-opacity':.25,'stroke-width':.7}))}defs.append(pattern);
-    }
+    const color=modelColor(segment.model),fill=modelPattern(defs,'day-pattern',segment.model,segment.role);
     const share=segment.total/day.total,end=angle+share*2*Math.PI,point=a=>`${110+100*Math.cos(a)} ${110+100*Math.sin(a)}`;
-    const attrs={fill:segment.role==='main'?color:`url(#${id})`,class:'pie-slice',tabindex:0,stroke:'#101411','stroke-opacity':.25,'stroke-width':.7};
+    const attrs={fill,class:'pie-slice',tabindex:0,stroke:'#101411','stroke-opacity':.25,'stroke-width':.7};
     const slice=share>=1?chartNode('circle',{...attrs,cx:110,cy:110,r:100}):chartNode('path',{...attrs,d:`M 110 110 L ${point(angle)} A 100 100 0 ${share>.5?1:0} 1 ${point(end)} Z`});
     const role=roleName(segment.role),label=`${role} · ${segment.model}: ${short(segment.total)} tokens · ${(share*100).toFixed(1)}%`;
     slice.setAttribute('aria-label',label);slice.append(chartNode('title',{},label));svg.append(slice);angle=end;
-    const row=document.createElement('div');row.className='pie-item';const swatch=document.createElement('i');swatch.className='swatch'+(segment.role==='subagent'?' hatched':segment.role==='auditor'?' dotted':role==='other'?' crossed':'');swatch.style.backgroundColor=color;
+    const row=document.createElement('div');row.className='pie-item';const swatch=document.createElement('i');swatch.className=roleSwatch(segment.role);swatch.style.backgroundColor=color;
     const name=document.createElement('span');name.textContent=role+' · '+segment.model;const amount=document.createElement('span');amount.className='amount';amount.textContent=short(segment.total)+' · '+(share*100).toFixed(1)+'%';row.append(swatch,name,amount);$('dayPieLegend').append(row);
   });
   $('dayPie').append(svg);

@@ -138,6 +138,19 @@ evaluate("data.sessions=0;data.available={first:'2026-07-01'};data.sources=[];re
 assert.equal(elements.get('setupPanel').open,false);
 evaluate("data.available.first=null;renderSetup()");
 assert.equal(elements.get('setupPanel').open,true);
+// Model identity must survive filtered catalogs and day-specific segment order.
+const stableColor=evaluate("modelColor('gpt-5.6-sol')");
+assert.equal(stableColor,'#b2a6d4');
+const visual=evaluate(`(()=>{const saved=data;
+ data={today:'2026-09-10',days:{'2026-09-09':{total:30,breakdown:{main:{alpha:10},subagent:{'gpt-5.6-sol':20}}},'2026-09-10':{total:20,breakdown:{subagent:{'gpt-5.6-sol':20}}}}};
+ renderDay('2026-09-09');const first=$('dayPie').children[0].children.filter(n=>n.attrs.class==='pie-slice').at(-1).attrs.fill;
+ renderDay('2026-09-10');const second=$('dayPie').children[0].children.filter(n=>n.attrs.class==='pie-slice').at(-1).attrs.fill;
+ const color=modelColors().get('gpt-5.6-sol');
+ const a=chartNode('defs'),b=chartNode('defs');modelPattern(a,'weekly','gpt-5.6-sol','auditor');modelPattern(b,'daily','gpt-5.6-sol','auditor');
+ const patternsMatch=JSON.stringify(a.children[0].children)===JSON.stringify(b.children[0].children);
+ data=saved;return {first,second,color,patternsMatch};})()`);
+assert.equal(visual.first,visual.second);assert.equal(visual.color,stableColor);assert.equal(visual.patternsMatch,true);
+assert.equal(evaluate("roleSwatch('other')"),'swatch crossed');
 context.originalLoad=evaluate('load');
 (async()=>{
   evaluate("load=async next=>{data.captured=next};activeFilters={start:'2026-08-01',end:'2026-08-31',provider:'Codex',projects:['A','B']}");
