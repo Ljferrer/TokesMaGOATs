@@ -91,7 +91,7 @@
     if (!heading || panel.querySelector('#coverage')) return;
     const title=heading.childNodes[0].textContent.trim();
     const actions=document.createElement('div');actions.className='snapshot-actions';actions.dataset.snapshotIgnore='';
-    addButton(panel,title,actions);panel.prepend(actions);
+    addButton(panel,title,actions);if(panel.id==='filterPanel')panel.querySelector('.panelhead').append(actions);else panel.prepend(actions);
   });
   // The selected day's pie can also be shared independently of the activity grid.
   const day=document.getElementById('dayBreakdown');
