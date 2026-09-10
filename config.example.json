@@ -1,0 +1,8 @@
+{
+  "timezone": "America/Los_Angeles",
+  "sources": [
+    {"provider": "Codex", "path": "~/.codex/sessions"},
+    {"provider": "Codex", "path": "~/.codex/archived_sessions"},
+    {"provider": "Claude Code", "path": "~/.claude/projects"}
+  ]
+}
