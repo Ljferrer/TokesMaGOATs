@@ -250,6 +250,8 @@ def main():
         def do_GET(self):
             if self.path == '/api/usage':
                 self.send(200, json.dumps(dict(**summary(db_path, config), **state)).encode())
+            elif self.path in ('/share.js', '/vendor/html-to-image.js'):
+                self.send(200, (BASE / self.path.lstrip('/')).read_bytes(), 'application/javascript; charset=utf-8')
             elif self.path == '/':
                 self.send(200, (BASE / 'index.html').read_bytes(), 'text/html; charset=utf-8')
             else:

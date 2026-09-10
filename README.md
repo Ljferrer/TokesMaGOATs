@@ -55,3 +55,7 @@ See [CARBON_METHODOLOGY.md](CARBON_METHODOLOGY.md) for the research, primary sou
 ## Work grouping
 
 Project totals merge worktree folders and attach Codex child sessions to their parent task. Claude subagents share their parent session. Expand project or work-type bars to see task labels and exact totals for the selected year. Work types use local title keywords, not model calls; mixed-topic sessions get one approximate category, and missing labels remain unclassified. All classification runs locally and personal labels stay in the ignored database.
+
+## Sharing snapshots
+
+Use **Save PNG** on any chart panel or the header to download a shareable image of that panel or the whole dashboard. The selected day also has its own export. Snapshots preserve current selections and expanded details, and include visible project/task labels. Images are generated locally using bundled [html-to-image 1.11.13](https://github.com/bubkoo/html-to-image) (MIT); nothing is uploaded or published automatically.
