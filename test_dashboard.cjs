@@ -4,7 +4,7 @@ const vm = require('node:vm');
 class Element {
   constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.style={};this.attrs={};this.value='2026';this.classList={add(){},remove(){}};}
   append(...nodes){this.children.push(...nodes)}
-  replaceChildren(){this.children=[]}
+  replaceChildren(...nodes){this.children=nodes}
   setAttribute(k,v){this.attrs[k]=v}
 }
 const elements = new Map();
@@ -29,7 +29,7 @@ let buttons=elements.get('grid').children.filter(n=>n.tag==='button');
 assert.equal(buttons.at(-1).attrs['aria-label'],'2026-09-10 · 0 tokens');
 assert.equal(buttons.at(-1).attrs['aria-current'],'date');
 assert.equal(buttons.length,253);
-assert.equal(elements.get('weeklyLedger').children[0].children[3].textContent,'140');
+assert.equal(elements.get('weeklyLedger').children[0].children[4].textContent,'140');
 assert.equal(elements.get('dailyChart').children[0].tag,'svg');
 buttons[buttons.length-3].onclick();assert.match(elements.get('detail').textContent,/140 total/);
 assert.equal(elements.get('dayBreakdown').hidden,false);
@@ -60,7 +60,15 @@ assert.equal(segments.length,3);
 assert.ok(segments[2].attrs.fill.startsWith('url(#subagent-model-'));
 assert.ok(Number(segments[2].attrs.y)<Number(segments[0].attrs.y));
 segments[2].onfocus();assert.match(elements.get('weeklyDetail').textContent,/Subagent · alpha · 20 tokens/);
-assert.equal(elements.get('weeklyLegend').children.length,2);
+assert.equal(elements.get('weeklyLegend').children.length,3);
+evaluate("data.days['2026-09-09']={total:30,subagent:0,auditor:30,breakdown:{main:{},subagent:{},auditor:{'codex-auto-review':30}}};renderYear();renderDay('2026-09-09')");
+const auditWeek=plain("stackedWeeks(data.days,'2026-09-07','2026-09-10')")[0];
+assert.equal(auditWeek.auditor,30);assert.equal(auditWeek.subagent,20);
+assert.equal(auditWeek.segments.at(-1).role,'auditor');
+assert.equal(auditWeek.segments.reduce((n,s)=>n+s.total,0),170);
+assert.match(elements.get('dayPieLegend').children[1].children[1].textContent,/Auditor · codex-auto-review/);
+const auditRect=elements.get('weeklyChart').children[0].children.filter(n=>n.attrs.class==='segment').at(-1);
+assert.match(auditRect.attrs.fill,/-auditor/);assert.match(auditRect.attrs['aria-label'],/Auditor/);
 elements.get('year').value='2024';evaluate('renderYear()');
 buttons=elements.get('grid').children.filter(n=>n.tag==='button');
 assert.equal(buttons.length,366);assert.match(buttons.at(-1).title,/2024-12-31/);

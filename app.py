@@ -136,7 +136,7 @@ def sync(db_path, config):
 def summary(db_path, config):
     zone = ZoneInfo(config.get('timezone', 'America/Los_Angeles'))
     days, providers, accounts, models = {}, {}, {}, {}
-    total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, responses=0)
+    total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, auditor=0, responses=0)
     sessions = set()
     with connect(db_path) as db:
         for row in db.execute('SELECT * FROM events'):
@@ -146,11 +146,12 @@ def summary(db_path, config):
             except (ValueError, AttributeError):
                 continue
             n = inp + out
-            d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, responses=0, breakdown={"main": {}, "subagent": {}}))
-            role = d['breakdown']['subagent' if sub else 'main']
+            d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, auditor=0, responses=0, breakdown={"main": {}, "subagent": {}, "auditor": {}}))
+            auditor = provider == 'Codex' and model == 'codex-auto-review'
+            role = d['breakdown']['auditor' if auditor else 'subagent' if sub else 'main']
             role[model] = role.get(model, 0) + n
             for target in (d, total):
-                for key, value in [('total', n), ('input', inp), ('output', out), ('cached', cache), ('subagent', n if sub else 0), ('responses', 1)]:
+                for key, value in [('total', n), ('input', inp), ('output', out), ('cached', cache), ('subagent', n if sub and not auditor else 0), ('auditor', n if auditor else 0), ('responses', 1)]:
                     target[key] += value
             total['cache_write'] += write
             total['reasoning'] += reasoning

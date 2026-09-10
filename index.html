@@ -8,22 +8,24 @@
 .stack-legend{display:flex;flex-wrap:wrap;gap:16px 32px;margin:8px 0 24px}.legend-group{flex:1;min-width:220px}.legend-group strong{display:block;font-size:12px;margin-bottom:10px}.legend-models{display:flex;flex-wrap:wrap;gap:8px 16px}.legend-item{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}.swatch{width:13px;height:13px;display:inline-block;border-radius:2px}.swatch.hatched{background-image:repeating-linear-gradient(135deg,transparent 0 4px,#10141199 4px 6px)}.chart .segment:hover,.chart .segment:focus{stroke:var(--text);stroke-width:1.5;outline:none}
 
 .day-breakdown{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;align-items:center;border-top:1px solid var(--line);margin-top:18px;padding-top:20px}.day-breakdown[hidden]{display:none}#dayPie{min-height:220px;display:flex;align-items:center;justify-content:center}.day-pie{display:block;width:220px;height:220px}.pie-slice:hover,.pie-slice:focus{stroke:var(--text);stroke-width:2;outline:none}.pie-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;font-size:12px}.pie-item .amount{margin-left:auto;color:var(--muted);font-family:monospace}#dailyLedger>summary{color:var(--text);font-size:16px}#dailyLedger>summary small{font-size:12px}#dailyLedger[open]>summary{margin-bottom:18px}@media(max-width:550px){.day-breakdown{grid-template-columns:1fr}.day-pie{margin:auto}}
+.swatch.dotted{background-image:radial-gradient(#101411 1.5px,transparent 1.5px);background-size:6px 6px}
 </style></head><body><main>
 <header><div class="brand">Tokes<span>MaGOATs</span> <small> / token ledger</small></div><button id="refresh">↻ Sync usage</button></header>
-<div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Parent sessions and subagents, together.</p>
-<div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
+<div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Main chats, task subagents, and auditors, together.</p>
+<div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Task subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
 <div class="stats"><div class="stat">Largest day · all time<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · all time<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">This week<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
 <section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Hover or click a day to inspect its usage.</div><div id="dayBreakdown" class="day-breakdown" hidden><div id="dayPie"></div><div id="dayPieLegend"></div></div></section>
-<section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div id="weeklyLegend" class="stack-legend"></div><div class="chart-scroll" id="weeklyChart"></div><div id="weeklyDetail" class="detail" role="status">Hover or focus a segment for exact usage.</div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Main chat</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
+<section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div id="weeklyLegend" class="stack-legend"></div><p class="muted" id="auditorTotal"></p><div class="chart-scroll" id="weeklyChart"></div><div id="weeklyDetail" class="detail" role="status">Hover or focus a segment for exact usage.</div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Main chat</th><th>Task subagents</th><th>Auditors</th><th>Total</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
 <section class="panel"><div class="panelhead"><h2>Daily pace</h2><small id="dailySubtitle"></small></div><div class="chart-key"><span>Daily tokens</span><span>7-day average</span></div><div class="chart-scroll" id="dailyChart"></div></section>
 <div class="columns"><section class="panel"><h2>By client</h2><div id="providers"></div><p class="muted" id="sessions"></p></section><section class="panel"><h2>Models</h2><div id="models"></div></section></div>
-<details class="panel" id="dailyLedger"><summary>Daily ledger <small>· Selected year · newest first</small></summary><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></details>
+<details class="panel" id="dailyLedger"><summary>Daily ledger <small>· Selected year · newest first</small></summary><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Task subagents</th><th>Auditors</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></details>
 <section class="panel"><h2>Coverage</h2><div id="coverage"></div><p class="muted">Local Codex sessions, archived sessions, and Claude Code histories are counted recursively. Account identity is not reliably recorded in these logs; totals combine all accounts present in each configured source. Deleted history and activity on other computers are not available here.</p><div id="status" class="status" role="status">Reading usage…</div></section>
 <footer>Stored on this computer · No telemetry · Cached tokens are a subset of input; reasoning tokens are a subset of output. These are token counts, not subscription limits or billed cost.</footer></main>
 <script>
 let data;const $=id=>document.getElementById(id),fmt=n=>new Intl.NumberFormat().format(n),short=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
 function stat(id,n){$(id).textContent=short(n);$(id).title=fmt(n)+' tokens'}
 function breakdown(id,values){$(id).replaceChildren();const max=Math.max(1,...Object.values(values));Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([name,n])=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span'),value=document.createElement('span');label.textContent=name;value.textContent=short(n);value.title=fmt(n);row.append(label,value);const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=(n/max*100)+'%';bar.append(fill);$(id).append(row,bar)})}
+const ROLES=['main','subagent','auditor'],roleName=role=>({main:'Main chat',subagent:'Subagent',auditor:'Auditor'}[role]);
 const DAY=86400000;
 const utc=key=>new Date(key+'T00:00:00Z');
 const dateKey=date=>date.toISOString().slice(0,10);
@@ -52,16 +54,16 @@ function stackedWeeks(days,start,end){
   const result=new Map();
   for(const d of dailySeries(days,start,end)){
     const key=monday(d.date);
-    if(!result.has(key))result.set(key,{date:key,total:0,main:0,subagent:0,segments:new Map()});
+    if(!result.has(key))result.set(key,{date:key,total:0,main:0,subagent:0,auditor:0,segments:new Map()});
     const week=result.get(key);week.total+=d.total;
     const breakdown=days[d.date]?.breakdown||{};
-    for(const role of ['main','subagent'])for(const [model,tokens] of Object.entries(breakdown[role]||{})){
+    for(const role of ROLES)for(const [model,tokens] of Object.entries(breakdown[role]||{})){
       const id=JSON.stringify([role,model]);
       if(!week.segments.has(id))week.segments.set(id,{role,model,total:0});
       week.segments.get(id).total+=tokens;week[role]+=tokens;
     }
   }
-  return [...result.values()].map(w=>({...w,segments:[...w.segments.values()].filter(s=>s.total>0).sort((a,b)=>a.role.localeCompare(b.role)||a.model.localeCompare(b.model))}));
+  return [...result.values()].map(w=>({...w,segments:[...w.segments.values()].filter(s=>s.total>0).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||a.model.localeCompare(b.model))}));
 }
 function modelColors(){
   const names=[...new Set(Object.values(data.days).flatMap(d=>Object.values(d.breakdown||{}).flatMap(group=>Object.keys(group))))].sort();
@@ -69,12 +71,12 @@ function modelColors(){
 }
 function renderStackLegend(series,colors){
   $('weeklyLegend').replaceChildren();
-  for(const role of ['main','subagent']){
+  for(const role of ROLES){
     const group=document.createElement('div');group.className='legend-group';
-    const heading=document.createElement('strong');heading.textContent=role==='main'?'Main chat · solid · bottom':'Subagents · striped · top';group.append(heading);
+    const heading=document.createElement('strong');heading.textContent={main:'Main chat · solid · bottom',subagent:'Task subagents · striped · middle',auditor:'Auditors · dotted · top'}[role];group.append(heading);
     const models=document.createElement('div');models.className='legend-models';
     const names=[...new Set(series.flatMap(w=>w.segments.filter(s=>s.role===role).map(s=>s.model)))].sort();
-    for(const model of names){const item=document.createElement('span');item.className='legend-item';const swatch=document.createElement('i');swatch.className='swatch'+(role==='subagent'?' hatched':'');swatch.style.backgroundColor=colors.get(model);const label=document.createElement('span');label.textContent=model;item.append(swatch,label);models.append(item)}
+    for(const model of names){const item=document.createElement('span');item.className='legend-item';const swatch=document.createElement('i');swatch.className='swatch'+(role==='subagent'?' hatched':role==='auditor'?' dotted':'');swatch.style.backgroundColor=colors.get(model);const label=document.createElement('span');label.textContent=model;item.append(swatch,label);models.append(item)}
     if(!names.length)models.textContent='No usage';group.append(models);$('weeklyLegend').append(group);
   }
 }
@@ -95,13 +97,13 @@ function drawChart(id,series,bar=false){
   for(let i=0;i<=4;i++){const n=max*i/4;svg.append(chartNode('line',{x1:left,x2:width-right,y1:y(n),y2:y(n),class:'guide'}),chartNode('text',{x:left-8,y:y(n)+4,'text-anchor':'end'},short(n)))}
   if(bar){
     const colors=modelColors(),defs=chartNode('defs'),patterns=new Map();
-    [...colors].forEach(([model,color],i)=>{const id='subagent-model-'+i,pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.6,'stroke-width':2}));defs.append(pattern);patterns.set(model,id)});svg.append(defs);
+    [...colors].forEach(([model,color],i)=>{const id='subagent-model-'+i,pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.6,'stroke-width':2}));defs.append(pattern);const audit=chartNode('pattern',{id:id+'-auditor',width:6,height:6,patternUnits:'userSpaceOnUse'});audit.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('circle',{cx:3,cy:3,r:1.5,fill:'#101411',style:'fill:#101411;opacity:1'}));defs.append(audit);patterns.set(model,id)});svg.append(defs);
     renderStackLegend(series,colors);
     series.forEach((d,i)=>{
       const step=w/series.length;let base=0;
       for(const segment of d.segments){
-        const label=`Week of ${d.date} · ${segment.role==='main'?'Main chat':'Subagent'} · ${segment.model} · ${fmt(segment.total)} tokens (${(segment.total/d.total*100).toFixed(1)}% of week)`;
-        const rect=chartNode('rect',{x:left+i*step+2,y:y(base+segment.total),width:Math.max(1,step-5),height:h*segment.total/max,class:'segment',fill:segment.role==='main'?colors.get(segment.model):`url(#${patterns.get(segment.model)})`,tabindex:0,'aria-label':label});
+        const label=`Week of ${d.date} · ${roleName(segment.role)} · ${segment.model} · ${fmt(segment.total)} tokens (${(segment.total/d.total*100).toFixed(1)}% of week)`;
+        const rect=chartNode('rect',{x:left+i*step+2,y:y(base+segment.total),width:Math.max(1,step-5),height:h*segment.total/max,class:'segment',fill:segment.role==='main'?colors.get(segment.model):`url(#${patterns.get(segment.model)}${segment.role==='auditor'?'-auditor':''})`,tabindex:0,'aria-label':label});
         rect.append(chartNode('title',{},label));rect.onmouseenter=rect.onfocus=()=>{$('weeklyDetail').textContent=label};svg.append(rect);base+=segment.total;
       }
       if(d.main&&d.subagent)svg.append(chartNode('line',{x1:left+i*step+2,x2:left+(i+1)*step-3,y1:y(d.main),y2:y(d.main),stroke:'#101411','stroke-width':2,'pointer-events':'none'}));
@@ -118,27 +120,27 @@ function drawChart(id,series,bar=false){
 }
 function renderDay(key){
   const day=data.days[key]||{total:0,subagent:0};
-  $('detail').textContent=key+' · '+fmt(day.total)+' total · '+fmt(day.subagent)+' subagent tokens';
+  $('detail').textContent=key+' · '+fmt(day.total)+' total · '+fmt(day.subagent)+' task subagent · '+fmt(day.auditor||0)+' auditor tokens';
   $('dayBreakdown').hidden=false;$('dayPie').replaceChildren();$('dayPieLegend').replaceChildren();
   if(!day.total){$('dayPie').textContent='No recorded tokens for this day.';return}
   const segments=stackedWeeks(data.days,key,key)[0].segments,colors=modelColors();
-  const svg=chartNode('svg',{viewBox:'0 0 220 220',class:'day-pie',role:'img','aria-label':`Token breakdown for ${key}: main chat and subagents by model`}),defs=chartNode('defs');
+  const svg=chartNode('svg',{viewBox:'0 0 220 220',class:'day-pie',role:'img','aria-label':`Token breakdown for ${key}: main chat, task subagents, and auditors by model`}),defs=chartNode('defs');
   const largest=insights(data.days,data.today).peakDay.total,ratio=largest?Math.min(1,day.total/largest):0;
   svg.style.width=svg.style.height=(110+110*ratio)+'px';
   const scale=document.createElement('p');scale.className='muted';scale.textContent='Usage: '+(ratio*100).toFixed(1)+'% of your largest day ('+fmt(largest)+' tokens).'+' Diameter scales linearly from 100 to 200 pixels.';$('dayPieLegend').append(scale);
   svg.append(defs);let angle=-Math.PI/2;
   segments.forEach((segment,i)=>{
     const color=colors.get(segment.model),id='day-pattern-'+i;
-    if(segment.role==='subagent'){
+    if(segment.role!=='main'){
       const pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});
-      pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.6,'stroke-width':2}));defs.append(pattern);
+      pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.6,'stroke-width':2}));if(segment.role==='auditor'){pattern.replaceChildren(chartNode('rect',{width:6,height:6,fill:color}),chartNode('circle',{cx:3,cy:3,r:1.5,fill:'#101411',style:'fill:#101411;opacity:1'}))}defs.append(pattern);
     }
     const share=segment.total/day.total,end=angle+share*2*Math.PI,point=a=>`${110+100*Math.cos(a)} ${110+100*Math.sin(a)}`;
     const attrs={fill:segment.role==='main'?color:`url(#${id})`,class:'pie-slice',tabindex:0,stroke:'#101411','stroke-width':1};
     const slice=share>=1?chartNode('circle',{...attrs,cx:110,cy:110,r:100}):chartNode('path',{...attrs,d:`M 110 110 L ${point(angle)} A 100 100 0 ${share>.5?1:0} 1 ${point(end)} Z`});
-    const role=segment.role==='main'?'Main chat':'Subagent',label=`${role} · ${segment.model}: ${fmt(segment.total)} tokens · ${(share*100).toFixed(1)}%`;
+    const role=roleName(segment.role),label=`${role} · ${segment.model}: ${fmt(segment.total)} tokens · ${(share*100).toFixed(1)}%`;
     slice.setAttribute('aria-label',label);slice.append(chartNode('title',{},label));svg.append(slice);angle=end;
-    const row=document.createElement('div');row.className='pie-item';const swatch=document.createElement('i');swatch.className='swatch'+(segment.role==='subagent'?' hatched':'');swatch.style.backgroundColor=color;
+    const row=document.createElement('div');row.className='pie-item';const swatch=document.createElement('i');swatch.className='swatch'+(segment.role==='subagent'?' hatched':segment.role==='auditor'?' dotted':'');swatch.style.backgroundColor=color;
     const name=document.createElement('span');name.textContent=role+' · '+segment.model;const amount=document.createElement('span');amount.className='amount';amount.textContent=fmt(segment.total)+' · '+(share*100).toFixed(1)+'%';row.append(swatch,name,amount);$('dayPieLegend').append(row);
   });
   $('dayPie').append(svg);
@@ -166,17 +168,17 @@ function renderYear(){
     $('grid').append(b);
   }
   $('ledger').replaceChildren();
-  for(const [day,d] of days.sort((a,b)=>b[0].localeCompare(a[0]))){const tr=document.createElement('tr');for(const value of [day,fmt(d.input),fmt(d.output),fmt(d.subagent),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('ledger').append(tr)}
+  for(const [day,d] of days.sort((a,b)=>b[0].localeCompare(a[0]))){const tr=document.createElement('tr');for(const value of [day,fmt(d.input),fmt(d.output),fmt(d.subagent),fmt(d.auditor||0),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('ledger').append(tr)}
   const first=days.length?days[days.length-1][0]:null;
   const weekly=first?stackedWeeks(data.days,first,end):[];
   $('weeklyLegend').replaceChildren();$('weeklyDetail').textContent='Hover or focus a segment for exact usage.';
   $('weeklySubtitle').textContent='Mon–Sun · selected-year days only'+(end===data.today?' · current week partial':'');
   drawChart('weeklyChart',weekly,true);$('weeklyLedger').replaceChildren();
-  for(const d of [...weekly].reverse()){const tr=document.createElement('tr');for(const value of [d.date,fmt(d.main),fmt(d.subagent),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('weeklyLedger').append(tr)}
+  for(const d of [...weekly].reverse()){const tr=document.createElement('tr');for(const value of [d.date,fmt(d.main),fmt(d.subagent),fmt(d.auditor||0),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('weeklyLedger').append(tr)}
   const trendStart=first?[first,offset(end,-89)].sort().pop():end;
   const trend=first?dailySeries(data.days,trendStart,end).map(d=>({...d,average:dailySeries(data.days,offset(d.date,-6),d.date).reduce((n,x)=>n+x.total,0)/7})):[];
   $('dailySubtitle').textContent=first?trendStart+' through '+end:'Selected year';drawChart('dailyChart',trend);
 }
-async function load(){const r=await fetch('/api/usage');if(!r.ok)throw Error('Could not load usage');data=await r.json();stat('total',data.totals.total);stat('today',data.days[data.today]?.total||0);stat('sub',data.totals.subagent);stat('cache',data.totals.cached);$('tz').textContent=data.timezone;$('cacheRate').textContent=(data.totals.input?Math.round(data.totals.cached/data.totals.input*100):0)+'% of input came from cache';breakdown('providers',data.providers);breakdown('models',data.models);$('sessions').textContent=fmt(data.sessions)+' sessions · '+fmt(data.totals.responses)+' responses';const previous=$('year').value;$('year').replaceChildren();[...new Set([data.today.slice(0,4),...Object.keys(data.days).filter(d=>d<=data.today).map(d=>d.slice(0,4))])].sort().reverse().forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;$('year').append(o)});if([...$('year').options].some(o=>o.value===previous))$('year').value=previous;renderYear();renderInsights();$('coverage').replaceChildren();data.sources.forEach(s=>{const p=document.createElement('p');p.textContent=s.provider+' · '+(s.found?fmt(s.files)+' history files':'Source not found')+(s.errors?' · '+s.errors+' unreadable files':'');$('coverage').append(p)});$('status').textContent='Loaded '+new Date().toLocaleTimeString()+'. Sync to pick up new activity.'}
+async function load(){const r=await fetch('/api/usage');if(!r.ok)throw Error('Could not load usage');data=await r.json();stat('total',data.totals.total);stat('today',data.days[data.today]?.total||0);stat('sub',data.totals.subagent);stat('cache',data.totals.cached);$('auditorTotal').textContent=fmt(data.totals.auditor||0)+' tokens from automatic approval reviews · included in overall totals';$('tz').textContent=data.timezone;$('cacheRate').textContent=(data.totals.input?Math.round(data.totals.cached/data.totals.input*100):0)+'% of input came from cache';breakdown('providers',data.providers);breakdown('models',data.models);$('sessions').textContent=fmt(data.sessions)+' sessions · '+fmt(data.totals.responses)+' responses';const previous=$('year').value;$('year').replaceChildren();[...new Set([data.today.slice(0,4),...Object.keys(data.days).filter(d=>d<=data.today).map(d=>d.slice(0,4))])].sort().reverse().forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;$('year').append(o)});if([...$('year').options].some(o=>o.value===previous))$('year').value=previous;renderYear();renderInsights();$('coverage').replaceChildren();data.sources.forEach(s=>{const p=document.createElement('p');p.textContent=s.provider+' · '+(s.found?fmt(s.files)+' history files':'Source not found')+(s.errors?' · '+s.errors+' unreadable files':'');$('coverage').append(p)});$('status').textContent='Loaded '+new Date().toLocaleTimeString()+'. Sync to pick up new activity.'}
 $('year').onchange=renderYear;$('refresh').onclick=async()=>{const b=$('refresh');b.disabled=true;$('status').textContent='Scanning local histories…';try{const r=await fetch('/api/sync',{method:'POST'});if(!r.ok)throw Error('Sync failed');await load()}catch(e){$('status').textContent=e.message}finally{b.disabled=false}};load().catch(e=>{$('status').textContent=e.message;$('status').classList.add('error')});
 </script></body></html>

@@ -58,9 +58,21 @@ class UsageTests(unittest.TestCase):
         self.write('a.jsonl',rows)
         sync(self.db,self.config('Claude Code'))
         day=summary(self.db,self.config('Claude Code'))['days']['2026-09-09']
-        self.assertEqual(day['breakdown'],{'main':{'alpha':10,'beta':20},'subagent':{'alpha':30}})
+        self.assertEqual(day['breakdown'],{'main':{'alpha':10,'beta':20},'subagent':{'alpha':30},'auditor':{}})
         self.assertEqual(sum(sum(group.values()) for group in day['breakdown'].values()),day['total'])
         self.assertEqual(sum(day['breakdown']['subagent'].values()),day['subagent'])
+
+    def test_auto_review_is_separate_from_task_subagents(self):
+        rows=[{'type':'session_meta','payload':{'id':'t','source':{'subagent':{'other':'guardian'}}}}]
+        for model,key,n in [('codex-auto-review','review',30),('gpt-5.6-sol','task',70)]:
+            rows.extend([{'type':'turn_context','payload':{'model':model}}, {'type':'token_usage_record','timestamp':'2026-09-10T01:00:00Z','payload':{'thread_id':'t','response_id':key,'usage':{'input_tokens':n}}}])
+        self.write('a.jsonl',rows)
+        sync(self.db,self.config('Codex'))
+        result=summary(self.db,self.config('Codex'))
+        self.assertEqual(result['totals']['total'],100)
+        self.assertEqual(result['totals']['subagent'],70)
+        self.assertEqual(result['totals']['auditor'],30)
+        self.assertEqual(result['days']['2026-09-09']['breakdown']['auditor'],{'codex-auto-review':30})
 
     def test_legacy_cumulative_deltas(self):
         def row(n,t):return {'type':'event_msg','timestamp':t,'payload':{'type':'token_count','info':{'total_token_usage':{'input_tokens':n,'output_tokens':0}}}}
