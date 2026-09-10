@@ -45,3 +45,9 @@ Tests cover repeated and copied histories, streaming updates, subagents, cache a
 **Roles are determined by recorded launch provenance, not model choice.** Codex child sessions launched during an explicit `$snipe` (or namespaced Snipe) invocation turn are Auditors. Claude agents attributed to `war-auditor`, through the assistant record or adjacent `.meta.json` agent type, are Auditors. Other subagents remain Task subagents even when they use Sol, Sonnet, or Opus. Codex's `codex-auto-review` belongs to Other. All four categories contribute to the overall total, without overlap.
 
 When audit provenance is missing from retained logs, a subagent remains a Task subagent; the app does not guess based on its model or mentions of auditing in ordinary conversation. Role metadata is stored separately from usage and existing histories are reclassified automatically on the first sync after this update. No prompt text is stored in the ledger.
+
+## Estimated carbon footprint
+
+The dashboard includes daily and all-time **metric tons of operational electricity CO₂**, low/central/high sensitivity scenarios, model-specific fresh/cache/output energy assumptions, and one-way economy LAX–JFK passenger flight equivalents. This is an estimate from retained token records, not measured provider power or a full life-cycle assessment. Parameter sizes remain undisclosed; open-weight reference models provide clearly labeled compute proxies.
+
+See [CARBON_METHODOLOGY.md](CARBON_METHODOLOGY.md) for the research, primary sources, equations, per-model assignments, scope, and optional `config.json` overrides. Cache-heavy histories are especially sensitive to assumed cache energy. No usage or footprint report is uploaded with the source code.

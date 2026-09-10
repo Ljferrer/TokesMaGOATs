@@ -10,6 +10,7 @@ import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
+from carbon import estimate as estimate_carbon
 
 BASE = Path(__file__).resolve().parent
 LOCK = threading.Lock()
@@ -184,6 +185,7 @@ def summary(db_path, config):
     days, providers, accounts, models = {}, {}, {}, {}
     total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, auditor=0, other=0, responses=0)
     sessions = set()
+    carbon_groups = {}
     with connect(db_path) as db:
         for row in db.execute('SELECT events.*, event_roles.role FROM events LEFT JOIN event_roles USING(id)'):
             _, timestamp, provider, account, session, model, sub, inp, cache, write, out, reasoning, recorded_role = row
@@ -191,6 +193,9 @@ def summary(db_path, config):
                 day = dt.datetime.fromisoformat(timestamp.replace('Z', '+00:00')).astimezone(zone).date().isoformat()
             except (ValueError, AttributeError):
                 continue
+            usage = carbon_groups.setdefault((day, model), dict(input=0, cached=0, output=0))
+            for key, value in (('input', inp), ('cached', cache), ('output', out)):
+                usage[key] += value
             n = inp + out
             d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, auditor=0, other=0, responses=0, breakdown={"main": {}, "subagent": {}, "auditor": {}, "other": {}}))
             category = 'other' if provider == 'Codex' and model == 'codex-auto-review' else recorded_role or ('subagent' if sub else 'main')
@@ -205,6 +210,7 @@ def summary(db_path, config):
                 group[label] = group.get(label, 0) + n
             sessions.add((provider, session))
     return dict(days=days, totals=total, providers=providers, accounts=accounts, models=models,
+                carbon=estimate_carbon(carbon_groups, config.get('carbon')),
                 sessions=len(sessions), timezone=str(zone), today=dt.datetime.now(zone).date().isoformat())
 
 
