@@ -10,7 +10,7 @@ python3 app.py
 
 Open http://127.0.0.1:8765. Python 3.9+ with timezone data is required. The first import scans all histories and can take a minute or more; later syncs parse only changed files. Click **Sync usage** for new activity. Use `--port 8766` to change the port or `--sync` to import and print a JSON summary without starting a server.
 
-The dashboard includes a yearly contribution grid, daily totals, input/output breakdown, cache reads, subagent totals, client/model breakdowns, and source coverage. The current-year grid ends at today. Additional summaries show your largest day and week, current-week usage against the same weekdays last week, and a seven-calendar-day average. Weekly bars stack main chat (solid, bottom), task subagents (striped, middle), and auditors (dotted), and other usage (crosshatched, top), with all four groups subdivided by model using consistent colors. Hover or focus a segment for its exact token count and share of the week. An expandable table lists main-chat, task-subagent, auditor, other, and combined totals; the daily pace chart shows up to 90 days and a seven-day average. Weeks start Monday; weekly charts count only the selected year, while the largest-week summary spans all retained history. Hover or click a day (or activate it with Enter/Space) to see a pie chart of its main-chat/task-subagent/auditor/other usage subdivided by model, with exact counts and percentages. Pie diameter interpolates linearly from 100 to 200 pixels using the day’s tokens divided by the largest day across all years (50% usage gives a 150-pixel diameter); hovering previews a day; keyboard focus alone does not change the pie. The daily ledger is collapsed by default and can be expanded for raw totals. Hover over abbreviated numbers for exact values.
+The dashboard includes a contribution grid, token and cache totals, client/model breakdowns, and source coverage. All charts and totals use the applied date/provider/model/project/role selection. Summary cards show its largest day and week, final week, and trailing average. Weekly bars stack main chat, task subagents, auditors, and other usage, subdivided by model. Hover or focus weekly segments for exact counts; expandable ledgers retain raw totals. Daily activity and its pie use compact K/M/B token counts. Hover or click a day (or activate it with Enter/Space) to inspect its role/model pie. Pie diameter interpolates from 100 to 200 pixels relative to the largest recorded day across all years, even when filtering. The current range never extends beyond today.
 
 ## Sources and accounts
 
@@ -18,7 +18,7 @@ Defaults scan `~/.codex/sessions`, `~/.codex/archived_sessions`, and `~/.claude/
 
 For custom profile directories, copy `config.example.json` to `config.json`, add sources using provider `Codex` or `Claude Code`, and optionally give each an `account` label. Set `timezone` to your IANA timezone. Restart after config changes. Config is ignored by git.
 
-Coverage is limited to retained local records. Deleted histories, other computers, and missing usage measurements cannot be reconstructed. This app does not scrape web accounts or estimate subscription limits or dollar costs.
+Coverage is limited to retained local records. Deleted histories, other computers, and missing usage measurements cannot be reconstructed. This app does not scrape web accounts or estimate subscription limits or billed charges. It can estimate API-equivalent costs.
 
 ## Accounting
 
@@ -54,8 +54,22 @@ See [CARBON_METHODOLOGY.md](CARBON_METHODOLOGY.md) for the research, primary sou
 
 ## Work grouping
 
-Project totals merge worktree folders and attach Codex child sessions to their parent task. Claude subagents share their parent session. Expand project or work-type bars to see task labels and exact totals for the selected year. Work types use local title keywords, not model calls; mixed-topic sessions get one approximate category, and missing labels remain unclassified. All classification runs locally and personal labels stay in the ignored database.
+Project totals merge worktree folders and attach Codex child sessions to their parent task. Claude subagents share their parent session. Expand project or work-type bars to see task labels and exact totals for the applied selection. Work types use local title keywords, not model calls; mixed-topic sessions get one approximate category, and missing labels remain unclassified. All classification runs locally and personal labels stay in the ignored database.
 
 ## Sharing snapshots
 
 Use **Save PNG** on any chart panel or the header to download a shareable image of that panel or the whole dashboard. The selected day also has its own export. Snapshots preserve current selections and expanded details, and include visible project/task labels. Images are generated locally using bundled [html-to-image 1.11.13](https://github.com/bubkoo/html-to-image) (MIT); nothing is uploaded or published automatically.
+
+## Filters, comparisons, and cost
+
+Choose a date preset or custom dates, provider, model, project, and role, then Apply filters. Totals and charts use that selection. Compare against the preceding equal number of calendar days or the full calendar month before the selected start date. A partial current month can therefore be compared explicitly to a full previous month. Reset returns to the current year. Project aliases with the same display name are selected together. The daily pie diameter still uses the largest recorded day of all time.
+
+API-equivalent cost applies published standard short-context rates checked September 10, 2026 to recorded usage. It is not a subscription bill or a historical invoice. Cache reads and writes are priced separately; net cache savings include write premiums. Unknown models remain unpriced and reduce visible pricing coverage. Add `cost_rates` to your private `config.json` to override a model with `[fresh_input, cached_read, cache_write, output]` USD per million tokens. Assumptions exclude long-context/fast premiums, batch discounts, residency, tools, taxes and historical rate changes; cache writes assume five-minute TTL. Sources: [OpenAI](https://developers.openai.com/api/docs/pricing) and [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing).
+
+## Getting started and refresh
+
+The dashboard opens while history imports run in the background. Getting started reports detected, missing, empty, and unreadable sources and explains custom paths. Dismiss it with Got it; it remains available for troubleshooting. A scan failure retains previously imported data and offers a manual retry.
+
+Auto refresh defaults to every five minutes while the page is visible; choose every minute or Off. The choice persists in this browser. One scan runs at a time, including requests from multiple tabs. Refresh preserves applied filters, the carbon scenario, and the selected day when it remains in range. Import and connection errors appear in the status line; automatic mode retries on its next interval. No AI API calls are made.
+
+After rendering, a visible Download PNG link remains available if your browser suppresses the automatic download.

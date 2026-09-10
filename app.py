@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 import sqlite3
 import threading
+from urllib.parse import urlsplit, parse_qs
+from costs import estimate as estimate_cost
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 from carbon import estimate as estimate_carbon
@@ -35,6 +37,10 @@ def number(u, key):
     return max(0, int(u.get(key) or 0))
 
 
+def model_name(value):
+    return value.strip() if isinstance(value,str) and value.strip() else 'unknown'
+
+
 def event(key, timestamp, provider, account, session, model, subagent, u):
     cached = number(u, 'cached_input_tokens' if provider == 'Codex' else 'cache_read_input_tokens')
     write = number(u, 'cache_write_input_tokens' if provider == 'Codex' else 'cache_creation_input_tokens')
@@ -42,7 +48,7 @@ def event(key, timestamp, provider, account, session, model, subagent, u):
     # Anthropic reports cache reads/writes separately; OpenAI input includes cache.
     if provider != 'Codex':
         inp += cached + write
-    return (provider + ':' + key, timestamp, provider, account, session, model,
+    return (provider + ':' + key, timestamp, provider, account, session, model_name(model),
             int(subagent), inp, cached, write, number(u, 'output_tokens'),
             number(u, 'reasoning_output_tokens'))
 
@@ -184,21 +190,40 @@ def sync(db_path, config):
         return report
 
 
-def summary(db_path, config):
+def summary(db_path, config, filters=None):
+    filters = filters or {}
     zone = ZoneInfo(config.get('timezone', 'America/Los_Angeles'))
+    today=dt.datetime.now(zone).date().isoformat()
     days, providers, accounts, models = {}, {}, {}, {}
     total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, auditor=0, other=0, responses=0)
     sessions = set()
     carbon_groups = {}
     work = {}
+    cost_groups = {}
+    available = {k:set() for k in ('providers','models','projects','years')}
+    all_days = {}
     with connect(db_path) as db:
         topic_lookup = {(p,s):dict(project=project,title=title,activity=activity,basis=basis) for p,s,project,title,activity,basis in db.execute('SELECT * FROM session_topics')}
         for row in db.execute('SELECT events.*, event_roles.role FROM events LEFT JOIN event_roles USING(id)'):
             _, timestamp, provider, account, session, model, sub, inp, cache, write, out, reasoning, recorded_role = row
+            model = model_name(model)
             try:
                 day = dt.datetime.fromisoformat(timestamp.replace('Z', '+00:00')).astimezone(zone).date().isoformat()
             except (ValueError, AttributeError):
                 continue
+            category = 'other' if provider == 'Codex' and model == 'codex-auto-review' else recorded_role or ('subagent' if sub else 'main')
+            project = topic_lookup.get((provider,session),{}).get('project','Unassigned')
+            if day<=today:
+                available['providers'].add(provider);available['models'].add(model);available['projects'].add(project);available['years'].add(day[:4])
+            all_days[day]=all_days.get(day,0)+inp+out
+            if any(filters.get(k) and filters[k] != value for k,value in [('provider',provider),('model',model),('role',category)]):
+                continue
+            if filters.get('projects') and project not in filters['projects']:
+                continue
+            if day < filters.get('start','0001-01-01') or day > filters.get('end','9999-12-31'):
+                continue
+            cost = cost_groups.setdefault((day,model),dict(input=0,cached=0,cache_write=0,output=0))
+            for key,value in [('input',inp),('cached',cache),('cache_write',write),('output',out)]:cost[key]+=value
             usage = carbon_groups.setdefault((day, model), dict(input=0, cached=0, output=0))
             for key, value in (('input', inp), ('cached', cache), ('output', out)):
                 usage[key] += value
@@ -218,9 +243,83 @@ def summary(db_path, config):
                 group[label] = group.get(label, 0) + n
             sessions.add((provider, session))
     return dict(days=days, totals=total, providers=providers, accounts=accounts, models=models,
-                work=list(work.values()),
+                work=list(work.values()), available=dict({k:sorted(v) for k,v in available.items()},first=min((d for d in all_days if d<=today),default=None)), largest_day_all_time=max((n for d,n in all_days.items() if d<=dt.datetime.now(zone).date().isoformat()),default=0), costs=estimate_cost(cost_groups, config.get('cost_rates')),
                 carbon=estimate_carbon(carbon_groups, config.get('carbon')),
                 sessions=len(sessions), timezone=str(zone), today=dt.datetime.now(zone).date().isoformat())
+
+
+def validated_range(filters, today):
+    start=dt.date.fromisoformat(filters.get('start',today[:4]+'-01-01')).isoformat()
+    end=dt.date.fromisoformat(filters.get('end',today)).isoformat()
+    if start>end:raise ValueError('Start must precede end.')
+    if end>today:raise ValueError('End cannot be in the future.')
+    return dict(start=start,end=end)
+
+
+def comparison_range(filters):
+    start,end=dt.date.fromisoformat(filters['start']),dt.date.fromisoformat(filters['end'])
+    kind=filters.get('compare','previous')
+    if kind=='month':
+        previous_end=start.replace(day=1)-dt.timedelta(days=1)
+        previous_start=previous_end.replace(day=1)
+    elif kind=='previous':
+        previous_end=start-dt.timedelta(days=1)
+        previous_start=start-dt.timedelta(days=(end-start).days+1)
+    else:raise ValueError('Unknown comparison mode.')
+    return dict(start=str(previous_start),end=str(previous_end),kind=kind)
+
+
+def usage_view(db_path, config, filters, state):
+    # Keep the running signal if an import commits during these reads, so the
+    # client performs a fresh read after completion rather than showing old data.
+    import_status=state.snapshot()
+    result=summary(db_path,config,filters)
+    result['range']={'start':filters['start'],'end':filters['end']}
+    period=comparison_range(filters)
+    previous=summary(db_path,config,dict(filters,start=period['start'],end=period['end']))
+    result['comparison']=dict(period,total=previous['totals']['total'])
+    after=state.snapshot()
+    after['syncing']=import_status['syncing'] or after['syncing'] or import_status['generation']!=after['generation']
+    return dict(result,**after)
+
+
+class ImportState:
+    """One background history scan shared by manual and automatic refresh."""
+    def __init__(self, db_path, config):
+        self.db_path, self.config = db_path, config
+        self.lock = threading.Lock()
+        self.running = False
+        self.generation = 0
+        self.error = None
+        self.updated = None
+        self.sources = [dict(provider=s['provider'],found=Path(s['path']).expanduser().exists(),files=0,changed=0,errors=0) for s in config['sources']]
+
+    def snapshot(self):
+        with self.lock:
+            return dict(sources=self.sources,generation=self.generation,syncing=self.running,sync_error=self.error,last_sync=self.updated)
+
+    def start(self):
+        with self.lock:
+            if self.running:
+                return False
+            self.running = True
+            self.generation += 1
+            self.error = None
+        threading.Thread(target=self._run,daemon=True).start()
+        return True
+
+    def _run(self):
+        try:
+            sources=sync(self.db_path,self.config)
+            with self.lock:
+                self.sources=sources
+                self.updated=dt.datetime.now(dt.timezone.utc).isoformat()
+        except Exception:
+            with self.lock:
+                self.error='History scan failed. Check local source permissions and configuration, then retry.'
+        finally:
+            with self.lock:
+                self.running=False
 
 
 def main():
@@ -233,10 +332,13 @@ def main():
     config_path = BASE / 'config.json'
     config = json.loads(config_path.read_text() if config_path.exists() else (BASE / 'config.example.json').read_text())
     db_path = data / 'usage.sqlite3'
-    state = {'sources': sync(db_path, config)}
     if args.sync:
-        print(json.dumps(dict(**summary(db_path, config), **state), indent=2))
+        sources=sync(db_path,config)
+        print(json.dumps(dict(**summary(db_path, config), sources=sources), indent=2))
         return
+    with connect(db_path):pass
+    state=ImportState(db_path,config)
+    state.start()
 
     class Handler(BaseHTTPRequestHandler):
         def send(self, status, body, kind='application/json'):
@@ -248,8 +350,18 @@ def main():
             self.wfile.write(body)
 
         def do_GET(self):
-            if self.path == '/api/usage':
-                self.send(200, json.dumps(dict(**summary(db_path, config), **state)).encode())
+            if urlsplit(self.path).path == '/api/usage':
+                try:
+                    query=parse_qs(urlsplit(self.path).query)
+                    filters={k:query[k][0] for k in ('start','end','provider','model','role','compare') if query.get(k)}
+                    today=dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
+                    filters.update(validated_range(filters,today))
+                    if query.get('project'):filters['projects']=query['project']
+                    self.send(200,json.dumps(usage_view(db_path,config,filters,state)).encode())
+                except (ValueError,OverflowError) as error:
+                    self.send(400,json.dumps({'error':str(error)}).encode())
+            elif self.path == '/api/state':
+                self.send(200,json.dumps(state.snapshot()).encode())
             elif self.path in ('/share.js', '/vendor/html-to-image.js'):
                 self.send(200, (BASE / self.path.lstrip('/')).read_bytes(), 'application/javascript; charset=utf-8')
             elif self.path == '/':
@@ -262,8 +374,8 @@ def main():
             if self.headers.get('Host') not in (f'127.0.0.1:{args.port}', f'localhost:{args.port}') or self.headers.get('Origin') not in (None, f'http://127.0.0.1:{args.port}', f'http://localhost:{args.port}'):
                 self.send(403, b'{}')
             elif self.path == '/api/sync':
-                state['sources'] = sync(db_path, config)
-                self.send(200, json.dumps(state).encode())
+                state.start()
+                self.send(202, json.dumps(state.snapshot()).encode())
             else:
                 self.send(404, b'{}')
 

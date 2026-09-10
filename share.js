@@ -1,6 +1,7 @@
 /* Local PNG snapshots. html-to-image 1.11.13 is bundled under vendor/. */
 (() => {
-  let exporting = false;
+  let exporting = false,lastDownloadUrl=null;
+  const downloads=document.createElement('div');downloads.dataset.snapshotIgnore='';downloads.setAttribute('aria-live','polite');document.querySelector('header').after(downloads);
   async function saveSnapshot(target, title, button) {
     if (exporting) return;
     exporting = true;
@@ -19,7 +20,7 @@
       heading.textContent = 'TokesMaGOATs / '+title;
       const context = document.createElement('p');
       context.className = 'muted';
-      context.textContent = 'Selected year: '+document.getElementById('year').value+' · Captured '+new Date().toLocaleString();
+      context.textContent = (document.getElementById('filterSummary')?.textContent || 'Selected year: '+document.getElementById('year').value)+' · Captured '+new Date().toLocaleString();
       const clone = target.cloneNode(true);
       // Freeze SVG presentation explicitly; nested SVG image rendering otherwise
       // loses inherited page CSS (notably axis labels and grid lines).
@@ -60,11 +61,11 @@
       });
       if (!blob) throw new Error('Image could not be generated.');
       const url = URL.createObjectURL(blob);
+      if(lastDownloadUrl)URL.revokeObjectURL(lastDownloadUrl);lastDownloadUrl=url;
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'TokesMaGOATs-'+title.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+document.getElementById('year').value+'.png';
-      document.body.append(link);link.click();link.remove();
-      setTimeout(() => URL.revokeObjectURL(url),60000);
+      link.download = 'TokesMaGOATs-'+title.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+(document.getElementById('filterSummary')?.textContent.match(/^\d{4}-\d{2}-\d{2} through \d{4}-\d{2}-\d{2}/)?.[0].replace(' through ','_')||document.getElementById('year').value)+'.png';
+      link.textContent='Download '+title+' PNG';link.style.cssText='display:inline-block;margin:12px 0';downloads.replaceChildren(link);link.click();
       document.getElementById('status').textContent = 'PNG ready: '+title+'.';
     } catch (error) {
       document.getElementById('status').textContent = 'Snapshot failed: '+error.message;

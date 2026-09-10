@@ -13,23 +13,25 @@
 
 .chart-eyebrow{display:block;font:10px monospace;letter-spacing:1.5px;color:var(--muted);margin-top:8px}.stack-legend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.legend-group{min-width:0;background:#ffffff03;border:1px solid #ffffff09;border-radius:10px;padding:14px 16px}.legend-group strong{display:flex;gap:8px;align-items:center;color:#bec7b8;font-size:12px;font-weight:500;margin-bottom:12px}.role-value{font:23px 'Helvetica Neue',sans-serif;font-weight:500;letter-spacing:-.6px}.role-share{font:11px monospace;color:var(--muted);margin-left:10px}.weekly-models{display:flex;flex-wrap:wrap;gap:8px 18px;padding:4px 0 12px}.weekly-models .legend-item{font-size:11px;color:#a7b2a1}.weekly-models .swatch{width:8px;height:8px;border-radius:50%}#auditorTotal{font-size:11px;line-height:1.6;color:#7e8c79;margin:0 0 16px}#weeklyChart{border-top:1px solid #ffffff09;padding-top:12px}#weeklyChart .guide{stroke:#ffffff0d;stroke-dasharray:none}#weeklyChart .chart text{font:10px 'Helvetica Neue',sans-serif;fill:#83917e}#weeklyChart .bar-total{fill:#c7d1be!important;font-size:10px!important;font-weight:500}#weeklyChart .segment{transition:filter .15s;cursor:crosshair}#weeklyChart .segment:hover,#weeklyChart .segment:focus{filter:brightness(1.18);stroke:#ffffffa0;stroke-width:.7}#weeklyDetail{border:1px solid #ffffff0a;background:#ffffff03;padding:12px 16px;border-radius:8px;font:12px 'Helvetica Neue',sans-serif;line-height:1.7;color:#c1cdb8;min-height:46px}.swatch.hatched{background-image:repeating-linear-gradient(135deg,transparent 0 5px,#10141150 5px 6px)}.swatch.dotted{background-image:radial-gradient(#10141160 .8px,transparent .8px);background-size:5px 5px}.swatch.crossed{background-image:repeating-linear-gradient(45deg,transparent 0 5px,#10141140 5px 6px),repeating-linear-gradient(-45deg,transparent 0 5px,#10141140 5px 6px)}@media(max-width:700px){.stack-legend{grid-template-columns:repeat(2,minmax(0,1fr))}.panelhead{flex-wrap:wrap}.chart-eyebrow{margin-bottom:6px}}@media(prefers-reduced-motion:reduce){#weeklyChart .segment{transition:none}}
 #dayDate{display:block;margin-top:24px;color:var(--green);font:500 26px monospace;line-height:1.3}#dayDate[hidden]{display:none}#detail{white-space:nowrap;overflow-x:auto;font-size:clamp(11px,1.05vw,13px);line-height:1.6;padding-bottom:4px}#dayDate:not([hidden])+#detail{margin-top:8px}
-.work-groups{display:grid;grid-template-columns:1.3fr 1fr;gap:36px}.work-group{margin:16px 0}.work-group summary{list-style:none;color:var(--text)}.work-label{display:flex;justify-content:space-between;gap:16px;margin-bottom:9px}.work-label small{white-space:nowrap}.work-group .bar{height:8px}.work-task{padding:12px 0;border-bottom:1px solid var(--line);line-height:1.5}.work-task small{display:block}.work-group summary::after{content:'View tasks ↓';display:block;font-size:10px;color:var(--muted);margin-top:8px}@media(max-width:700px){.work-groups{grid-template-columns:1fr;gap:18px}}.snapshot-actions{display:flex;justify-content:flex-end;margin-bottom:12px}.snapshot-button{font-size:11px;padding:7px 10px;color:var(--muted)}header{gap:12px}header .brand{margin-right:auto}.snapshot-heading{font:24px Georgia,serif;color:var(--green)}.day-breakdown>.snapshot-actions{grid-column:1/-1}header{flex-wrap:wrap}</style></head><body><main>
-<header><div class="brand">Tokes<span>MaGOATs</span> <small> / token ledger</small></div><button id="privacy" aria-pressed="false">Privacy off</button><button id="refresh">↻ Sync usage</button></header>
-<div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Main chats, task subagents, auditors, and other usage, together.</p>
-<div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Task subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
-<div class="stats"><div class="stat">Largest day · all time<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · all time<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">This week<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
+.work-groups{display:grid;grid-template-columns:1.3fr 1fr;gap:36px}.work-group{margin:16px 0}.work-group summary{list-style:none;color:var(--text)}.work-label{display:flex;justify-content:space-between;gap:16px;margin-bottom:9px}.work-label small{white-space:nowrap}.work-group .bar{height:8px}.work-task{padding:12px 0;border-bottom:1px solid var(--line);line-height:1.5}.work-task small{display:block}.work-group summary::after{content:'View tasks ↓';display:block;font-size:10px;color:var(--muted);margin-top:8px}@media(max-width:700px){.work-groups{grid-template-columns:1fr;gap:18px}}.snapshot-actions{display:flex;justify-content:flex-end;margin-bottom:12px}.snapshot-button{font-size:11px;padding:7px 10px;color:var(--muted)}header{gap:12px}header .brand{margin-right:auto}.snapshot-heading{font:24px Georgia,serif;color:var(--green)}.day-breakdown>.snapshot-actions{grid-column:1/-1}header{flex-wrap:wrap}.filters{display:flex;flex-wrap:wrap;gap:14px;align-items:end}.filters label{display:grid;gap:6px;color:var(--muted);font-size:12px}input{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:10px;border-radius:6px}.filters select{max-width:240px}a{color:var(--green)}</style></head><body><main>
+<header><div class="brand">Tokes<span>MaGOATs</span> <small> / token ledger</small></div><button id="privacy" aria-pressed="false">Privacy off</button><label data-snapshot-ignore style="font-size:11px;color:var(--muted)">Auto refresh <select id="autoRefresh"><option value="0">Off</option><option value="60">Every minute</option><option value="300" selected>Every 5 minutes</option></select></label><button id="refresh">↻ Sync usage</button></header>
+<details class="panel" id="setupPanel" data-snapshot-ignore><summary>Getting started · local history sources</summary><p id="setupState"></p><div id="setupSources"></div><p>No API keys or account login needed. Codex histories are detected in ~/.codex/sessions and ~/.codex/archived_sessions; Claude Code histories in ~/.claude/projects.</p><p class="muted">For another profile or folder, copy config.example.json to config.json, edit the sources paths, and restart. Missing folders are skipped. Empty folders have no retained history yet; unreadable files may need local file permissions corrected before retrying Sync usage. Deleted sessions, web-only conversations, and other computers are not included.</p><button id="dismissSetup">Got it</button></details><div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Main chats, task subagents, auditors, and other usage, together.</p>
+<section class="panel" id="filterPanel"><div class="panelhead"><h2>Explore usage</h2></div><div class="filters" data-snapshot-ignore><label>Period <select id="period"><option value="year">Selected year</option><option value="month">This month</option><option value="lastmonth">Last month</option><option value="30">Last 30 days</option><option value="all">All history</option><option value="custom">Custom</option></select></label><label>From <input id="fromDate" type="date"></label><label>Through <input id="toDate" type="date"></label><label>Provider <select id="filterProvider"><option value="">All providers</option></select></label><label>Model <select id="filterModel"><option value="">All models</option></select></label><label>Project <select id="filterProject"><option value="">All projects</option></select></label><label>Role <select id="filterRole"><option value="">All roles</option><option value="main">Main chat</option><option value="subagent">Task subagents</option><option value="auditor">Auditors</option><option value="other">Other</option></select></label><label>Compare with <select id="comparePeriod"><option value="previous">Previous equal-length period</option><option value="month">Previous calendar month</option></select></label><button id="applyFilters">Apply filters</button><button id="resetFilters">Reset</button></div><p id="filterSummary" class="muted"></p><p id="comparison" class="muted"></p></section>
+<div class="stats"><div class="stat">Selected tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Task subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
+<div class="stats"><div class="stat">Largest day · selection<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · selection<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">Final week · selection<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days in selection<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
 
 <section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><time id="dayDate" hidden></time><div id="detail" class="detail">Hover or click a day to inspect its usage.</div><div id="dayBreakdown" class="day-breakdown" hidden><div id="dayPie"></div><div id="dayPieLegend"></div></div></section>
 <section class="panel"><div class="panelhead"><h2>Weekly usage <span class="chart-eyebrow">TOKEN DISTRIBUTION</span></h2><small id="weeklySubtitle"></small></div><div id="weeklyLegend" class="stack-legend"></div><div id="weeklyModelLegend" class="weekly-models"></div><p class="muted" id="auditorTotal"></p><div class="chart-scroll" id="weeklyChart"></div><div id="weeklyDetail" class="detail" role="status">Hover or focus a segment for exact usage.</div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Main chat</th><th>Task subagents</th><th>Auditors</th><th>Other</th><th>Total</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
-<section class="panel" id="carbonPanel"><div class="panelhead"><h2>Estimated carbon footprint</h2><select id="carbonScenario" aria-label="Carbon estimation scenario"><option value="central">Central assumptions</option><option value="low">Low assumptions</option><option value="high">High assumptions</option></select></div><p class="muted">Operational electricity only · metric tons of CO₂ · all recorded history. These are assumption-based scenarios, not measured provider emissions.</p><div class="stats"><div class="stat">Estimated CO₂<strong id="carbonTotal">—</strong><small id="carbonRange"></small></div><div class="stat">LA → NYC equivalents<strong id="carbonFlights">—</strong><small>One person · one-way · economy · CO₂ only</small></div><div class="stat">Serving electricity<strong id="carbonKwh">—</strong><small id="carbonGrid"></small></div><div class="stat">Largest carbon day<strong id="carbonPeak">—</strong><small id="carbonPeakDate"></small></div></div><p class="muted">Cached tokens are weighted separately from fresh input and output. The wide range reflects unknown serving hardware, batching, cache costs, and data-center electricity. Training, hardware manufacture, tools, and your computer are excluded.</p><h2>Daily CO₂ · selected year</h2><div class="chart-key"><span>Daily CO₂</span><span>7-day average</span></div><div id="carbonChart" class="chart-scroll"></div><details><summary>Model assumptions, energy rates, and compute proxies</summary><p class="muted">Actual closed-model parameter counts are undisclosed. The open-model weights below are scenario proxies, not estimates of the proprietary weights. FLOPs are approximate matrix operations per million fresh tokens; cached reads do not repeat that work. Electricity is estimated separately, not calculated from FLOPs. All rates below use the selected scenario and include serving overhead.</p><div style="overflow-x:auto"><table><thead><tr><th>Recorded model / scenario</th><th>Open-model proxy<br>total / active B</th><th>Proxy FLOPs/M</th><th>Fresh input<br>kWh/M</th><th>Cached input<br>kWh/M</th><th>Output<br>kWh/M</th><th>Your mix<br>kWh/M</th><th>Metric tons CO₂</th></tr></thead><tbody id="carbonModels"></tbody></table></div></details><details><summary>Method and sources</summary><p class="muted">Energy = (fresh input × fresh rate + cached input × cache rate + output × output rate) ÷ 1,000,000. Cache creation is fresh input; reasoning is counted once within output. CO₂ = facility kWh × assumed grid kg CO₂/kWh ÷ 1,000. Flight equivalents = metric tons CO₂ ÷ 0.27, a generic long-haul economy proxy for LAX–JFK excluding non-CO₂ aviation effects.</p><p class="muted">Low/high are sensitivity scenarios, not confidence bounds. Open-model measurements motivate the scale but do not measure these proprietary models. The cached-energy ratios are assumptions, not API price discounts. Full derivation and model comparisons are in CARBON_METHODOLOGY.md.</p><div id="carbonSources"></div></details></section>
+<section class="panel" id="carbonPanel"><div class="panelhead"><h2>Estimated carbon footprint</h2><select id="carbonScenario" aria-label="Carbon estimation scenario"><option value="central">Central assumptions</option><option value="low">Low assumptions</option><option value="high">High assumptions</option></select></div><p class="muted">Operational electricity only · metric tons of CO₂ · selected usage. These are assumption-based scenarios, not measured provider emissions.</p><div class="stats"><div class="stat">Estimated CO₂<strong id="carbonTotal">—</strong><small id="carbonRange"></small></div><div class="stat">LA → NYC equivalents<strong id="carbonFlights">—</strong><small>One person · one-way · economy · CO₂ only</small></div><div class="stat">Serving electricity<strong id="carbonKwh">—</strong><small id="carbonGrid"></small></div><div class="stat">Largest carbon day<strong id="carbonPeak">—</strong><small id="carbonPeakDate"></small></div></div><p class="muted">Cached tokens are weighted separately from fresh input and output. The wide range reflects unknown serving hardware, batching, cache costs, and data-center electricity. Training, hardware manufacture, tools, and your computer are excluded.</p><h2>Daily CO₂ · selection</h2><div class="chart-key"><span>Daily CO₂</span><span>7-day average</span></div><div id="carbonChart" class="chart-scroll"></div><details><summary>Model assumptions, energy rates, and compute proxies</summary><p class="muted">Actual closed-model parameter counts are undisclosed. The open-model weights below are scenario proxies, not estimates of the proprietary weights. FLOPs are approximate matrix operations per million fresh tokens; cached reads do not repeat that work. Electricity is estimated separately, not calculated from FLOPs. All rates below use the selected scenario and include serving overhead.</p><div style="overflow-x:auto"><table><thead><tr><th>Recorded model / scenario</th><th>Open-model proxy<br>total / active B</th><th>Proxy FLOPs/M</th><th>Fresh input<br>kWh/M</th><th>Cached input<br>kWh/M</th><th>Output<br>kWh/M</th><th>Your mix<br>kWh/M</th><th>Metric tons CO₂</th></tr></thead><tbody id="carbonModels"></tbody></table></div></details><details><summary>Method and sources</summary><p class="muted">Energy = (fresh input × fresh rate + cached input × cache rate + output × output rate) ÷ 1,000,000. Cache creation is fresh input; reasoning is counted once within output. CO₂ = facility kWh × assumed grid kg CO₂/kWh ÷ 1,000. Flight equivalents = metric tons CO₂ ÷ 0.27, a generic long-haul economy proxy for LAX–JFK excluding non-CO₂ aviation effects.</p><p class="muted">Low/high are sensitivity scenarios, not confidence bounds. Open-model measurements motivate the scale but do not measure these proprietary models. The cached-energy ratios are assumptions, not API price discounts. Full derivation and model comparisons are in CARBON_METHODOLOGY.md.</p><div id="carbonSources"></div></details></section>
+<section class="panel" id="costPanel"><h2>API-equivalent cost</h2><p class="muted">Standard short-context USD at rates checked September 10, 2026, applied to selected history. These are estimates, not subscription charges or invoices. Assumes five-minute cache writes; excludes historical rate changes, long-context/fast premiums, batch discounts, residency, tools, and taxes.</p><div class="stats"><div class="stat">Priced usage<strong id="costTotal">—</strong></div><div class="stat">Net cache savings<strong id="cacheSavings">—</strong><small>Versus ordinary input, including cache-write premiums</small></div><div class="stat">Pricing coverage<strong id="costCoverage">—</strong><small id="unpriced"></small></div></div><div id="costChart" class="chart-scroll"></div><div id="costModels"></div><p class="muted">Override or add model rates in config.json → cost_rates: four USD-per-million values [fresh input, cached read, cache write, output]. Restart after changes.</p><p><a href="https://developers.openai.com/api/docs/pricing">OpenAI rates</a> · <a href="https://platform.claude.com/docs/en/about-claude/pricing">Anthropic rates</a></p></section>
 <section class="panel"><div class="panelhead"><h2>What you worked on</h2><small id="workRange"></small></div><p class="muted">Project folders combine worktrees; child agents inherit their parent task. Work types are approximate, inferred from saved titles, summaries, or short opening requests. Expand a group to inspect its tasks.</p><details id="groupEditor" data-snapshot-ignore><summary>Edit project and work-type groups</summary><p class="muted">Rename projects or give multiple projects the same name to merge them. Corrections stay on this browser after sync.</p><label>Project <select id="editProject"></select></label> <label>Display name <input id="projectName" maxlength="120"></label> <button id="saveProject">Save name</button> <button id="resetProject">Reset name</button><p><label>Task <select id="editTask" style="max-width:100%"></select></label></p><label>Work type <select id="taskActivity"><option>Implementation</option><option>Reviews &amp; audits</option><option>Research &amp; planning</option><option>Fixes &amp; reliability</option><option>Setup &amp; maintenance</option><option>Unclassified work</option></select></label> <button id="saveActivity">Save work type</button> <button id="resetActivity">Reset work type</button><p id="groupStatus" role="status"></p></details><div class="work-groups"><div><h2>By project</h2><div id="workProjects"></div></div><div><h2>By work type</h2><div id="workActivities"></div></div></div></section>
 <section class="panel"><div class="panelhead"><h2>Daily pace</h2><small id="dailySubtitle"></small></div><div class="chart-key"><span>Daily tokens</span><span>7-day average</span></div><div class="chart-scroll" id="dailyChart"></div></section>
 <div class="columns"><section class="panel"><h2>By client</h2><div id="providers"></div><p class="muted" id="sessions"></p></section><section class="panel"><h2>Models</h2><div id="models"></div></section></div>
-<details class="panel" id="dailyLedger"><summary>Daily ledger <small>· Selected year · newest first</small></summary><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Task subagents</th><th>Auditors</th><th>Other</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></details>
+<details class="panel" id="dailyLedger"><summary>Daily ledger <small>· Selection · newest first</small></summary><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Task subagents</th><th>Auditors</th><th>Other</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></details>
 <section class="panel"><h2>Coverage</h2><div id="coverage"></div><p class="muted">Local Codex sessions, archived sessions, and Claude Code histories are counted recursively. Account identity is not reliably recorded in these logs; totals combine all accounts present in each configured source. Deleted history and activity on other computers are not available here.</p><div id="status" class="status" role="status">Reading usage…</div></section>
 <footer>Stored on this computer · No telemetry · Cached tokens are a subset of input; reasoning tokens are a subset of output. These are token counts, not subscription limits or billed cost.</footer></main>
 <script>
-let data;const $=id=>document.getElementById(id),fmt=n=>new Intl.NumberFormat().format(n),short=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
+let selectedDay=null;let data;const $=id=>document.getElementById(id),fmt=n=>new Intl.NumberFormat().format(n),short=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
 function stat(id,n){$(id).textContent=short(n);$(id).title=fmt(n)+' tokens'}
 function breakdown(id,values){$(id).replaceChildren();const max=Math.max(1,...Object.values(values));Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([name,n])=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span'),value=document.createElement('span');label.textContent=name;value.textContent=short(n);value.title=fmt(n);row.append(label,value);const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=(n/max*100)+'%';bar.append(fill);$(id).append(row,bar)})}
 const ROLES=['main','subagent','auditor','other'],roleName=role=>({main:'Main chat',subagent:'Subagent',auditor:'Auditor',other:'Other'}[role]);
@@ -99,7 +101,7 @@ function chartNode(tag,attrs={},text){
 function drawChart(id,series,bar=false,unit='tokens'){
   const container=$(id);container.replaceChildren();
   const valueLabel=n=>unit==='tokens'?fmt(n):n.toPrecision(3);
-  if(!series.length){container.textContent='No recorded usage in this year.';return}
+  if(!series.length){container.textContent='No recorded usage in this selection.';return}
   const width=Math.max(720,bar?series.length*24:720),height=bar?280:230,left=52,right=18,top=bar?36:20,bottom=40;
   const w=width-left-right,h=height-top-bottom,max=Math.max(0,...series.map(d=>Math.max(d.total,d.average||0)))||1;
   const svg=chartNode('svg',{viewBox:`0 0 ${width} ${height}`,class:'chart',role:'img','aria-label':bar?'Token totals by week':'Daily '+unit+' and seven-day average'});
@@ -132,17 +134,18 @@ function drawChart(id,series,bar=false,unit='tokens'){
   container.append(svg);
 }
 function renderDay(key){
+  selectedDay=key;
   const day=data.days[key]||{total:0,subagent:0};
   $('dayDate').hidden=false;$('dayDate').textContent=key;$('dayDate').setAttribute('datetime',key);
-  $('detail').textContent=fmt(day.total)+' total · '+fmt(day.subagent)+' task subagent · '+fmt(day.auditor||0)+' auditor · '+fmt(day.other||0)+' other tokens';
+  $('detail').textContent=short(day.total)+' total · '+short(day.subagent)+' task subagent · '+short(day.auditor||0)+' auditor · '+short(day.other||0)+' other tokens';
   if(data.carbon){const estimate=data.carbon.days[key]?.[$('carbonScenario').value||'central'];$('detail').textContent+=' · estimated '+carbonNumber(estimate?.tonnes_co2||0)+' metric tons CO₂';}
   $('dayBreakdown').hidden=false;$('dayPie').replaceChildren();$('dayPieLegend').replaceChildren();
   if(!day.total){$('dayPie').textContent='No recorded tokens for this day.';return}
   const segments=stackedWeeks(data.days,key,key)[0].segments,colors=modelColors();
   const svg=chartNode('svg',{viewBox:'0 0 220 220',class:'day-pie',role:'img','aria-label':`Token breakdown for ${key}: main chat, task subagents, auditors, and other usage by model`}),defs=chartNode('defs');
-  const largest=insights(data.days,data.today).peakDay.total,ratio=largest?Math.min(1,day.total/largest):0;
+  const largest=data.largest_day_all_time??insights(data.days,data.today).peakDay.total,ratio=largest?Math.min(1,day.total/largest):0;
   svg.style.width=svg.style.height=(110+110*ratio)+'px';
-  const scale=document.createElement('p');scale.className='muted';scale.textContent='Usage: '+(ratio*100).toFixed(1)+'% of your largest day ('+fmt(largest)+' tokens).'+' Diameter scales linearly from 100 to 200 pixels.';$('dayPieLegend').append(scale);
+  const scale=document.createElement('p');scale.className='muted';scale.textContent='Usage: '+(ratio*100).toFixed(1)+'% of your largest day ('+short(largest)+' tokens).'+' Diameter scales linearly from 100 to 200 pixels.';$('dayPieLegend').append(scale);
   svg.append(defs);let angle=-Math.PI/2;
   segments.forEach((segment,i)=>{
     const color=colors.get(segment.model),id='day-pattern-'+i;
@@ -153,10 +156,10 @@ function renderDay(key){
     const share=segment.total/day.total,end=angle+share*2*Math.PI,point=a=>`${110+100*Math.cos(a)} ${110+100*Math.sin(a)}`;
     const attrs={fill:segment.role==='main'?color:`url(#${id})`,class:'pie-slice',tabindex:0,stroke:'#101411','stroke-opacity':.25,'stroke-width':.7};
     const slice=share>=1?chartNode('circle',{...attrs,cx:110,cy:110,r:100}):chartNode('path',{...attrs,d:`M 110 110 L ${point(angle)} A 100 100 0 ${share>.5?1:0} 1 ${point(end)} Z`});
-    const role=roleName(segment.role),label=`${role} · ${segment.model}: ${fmt(segment.total)} tokens · ${(share*100).toFixed(1)}%`;
+    const role=roleName(segment.role),label=`${role} · ${segment.model}: ${short(segment.total)} tokens · ${(share*100).toFixed(1)}%`;
     slice.setAttribute('aria-label',label);slice.append(chartNode('title',{},label));svg.append(slice);angle=end;
     const row=document.createElement('div');row.className='pie-item';const swatch=document.createElement('i');swatch.className='swatch'+(segment.role==='subagent'?' hatched':segment.role==='auditor'?' dotted':role==='other'?' crossed':'');swatch.style.backgroundColor=color;
-    const name=document.createElement('span');name.textContent=role+' · '+segment.model;const amount=document.createElement('span');amount.className='amount';amount.textContent=fmt(segment.total)+' · '+(share*100).toFixed(1)+'%';row.append(swatch,name,amount);$('dayPieLegend').append(row);
+    const name=document.createElement('span');name.textContent=role+' · '+segment.model;const amount=document.createElement('span');amount.className='amount';amount.textContent=short(segment.total)+' · '+(share*100).toFixed(1)+'%';row.append(swatch,name,amount);$('dayPieLegend').append(row);
   });
   $('dayPie').append(svg);
 }
@@ -178,23 +181,24 @@ function renderCarbon(){
   }
   $('carbonSources').replaceChildren();for(const source of c.sources){const p=document.createElement('p'),a=document.createElement('a');a.textContent=source.title;a.href=source.url;a.style.color='var(--green)';p.append(a);$('carbonSources').append(p)}
   const values=Object.fromEntries(Object.entries(c.days).map(([day,v])=>[day,{total:v[scenario].tonnes_co2}]));
-  const year=$('year').value,end=year===data.today.slice(0,4)?data.today:year+'-12-31';
-  const first=Object.keys(values).filter(day=>day.startsWith(year)&&day<=end).sort()[0];
+  const {start,end}=selectedRange();
+  const first=Object.keys(values).filter(day=>day>=start&&day<=end).sort()[0];
   const series=first?dailySeries(values,first,end).map(d=>({...d,average:dailySeries(values,offset(d.date,-6),d.date).reduce((n,x)=>n+x.total,0)/7})):[];
   drawChart('carbonChart',series,false,'metric tons CO₂');
 }
 function renderInsights(){
-  const s=insights(data.days,data.today);
+  const end=activeFilters?.end||data.today,s=insights(data.days,end);
   stat('peakDay',s.peakDay.total);$('peakDate').textContent=s.peakDay.date||'No usage yet';
   stat('peakWeek',s.peakWeek.total);$('peakWeekDate').textContent=s.peakWeek.date?'Week of '+s.peakWeek.date+' · Mon–Sun':'No usage yet';
-  stat('thisWeek',s.thisWeek);$('weekChange').textContent=s.previousWeek?`${s.thisWeek>=s.previousWeek?'+':''}${Math.round((s.thisWeek/s.previousWeek-1)*100)}% vs same weekdays last week`:'No usage in the same weekdays last week';
-  stat('dailyAverage',Math.round(s.average));
+  stat('thisWeek',s.thisWeek);$('weekChange').textContent='Week containing '+end+' · selected days only';
+  const count=activeFilters?Math.min(7,Math.round((utc(end)-utc(activeFilters.start))/86400000)+1):7;
+  stat('dailyAverage',Math.round(s.average*7/count));
 }
 let preferences={privacy:false,projects:{},activities:{}};
 try {const saved=JSON.parse(localStorage.getItem('tokes-preferences')||'{}');if(saved&&typeof saved==='object'){preferences.privacy=saved.privacy===true;for(const key of ['projects','activities'])if(saved[key]&&typeof saved[key]==='object'&&!Array.isArray(saved[key]))preferences[key]=Object.fromEntries(Object.entries(saved[key]).filter(([,v])=>typeof v==='string'&&v.length<=120));}}catch(_){}
 function taskKey(task){return JSON.stringify([task.provider,task.session])}
 function workTask(task){return {...task,project:Object.hasOwn(preferences.projects,task.project)?preferences.projects[task.project]:task.project,activity:Object.hasOwn(preferences.activities,taskKey(task))?preferences.activities[taskKey(task)]:task.activity}}
-function savePreferences(){try{localStorage.setItem('tokes-preferences',JSON.stringify(preferences));$('groupStatus').textContent='Saved on this browser.'}catch(_){$('groupStatus').textContent='Browser storage unavailable; changes apply only until reload.'}}
+function savePreferences(){try{localStorage.setItem('tokes-preferences',JSON.stringify(preferences));$('groupStatus').textContent='Saved on this browser.';return true}catch(_){$('groupStatus').textContent='Browser storage unavailable; changes apply only until reload.';return false}}
 function renderPrivacy(){ $('privacy').textContent=preferences.privacy?'Privacy on':'Privacy off';$('privacy').setAttribute('aria-pressed',String(preferences.privacy));$('groupEditor').hidden=preferences.privacy; }
 function renderGroupEditor(){
   const previousProject=$('editProject').value,previousTask=$('editTask').value;
@@ -205,6 +209,13 @@ function renderGroupEditor(){
   if([...$('editTask').options].some(o=>o.value===previousTask))$('editTask').value=previousTask;
   $('projectName').value=preferences.projects[$('editProject').value]||$('editProject').value;
   const task=(data.work||[]).find(t=>taskKey(t)===$('editTask').value);if(task)$('taskActivity').value=workTask(task).activity;
+}
+const privateProjectIds=new Map();
+function privateProjectLabel(name){
+  const projects=filterOptions?.projects||(data.work||[]).map(t=>t.project);
+  const identities=[...new Set(projects.map(raw=>Object.hasOwn(preferences.projects,raw)?preferences.projects[raw]:raw))].sort();
+  for(const identity of [...identities,name])if(!privateProjectIds.has(identity))privateProjectIds.set(identity,'Project '+(privateProjectIds.size+1));
+  return privateProjectIds.get(name);
 }
 function workGroups(field,start,end){
   const groups=new Map();
@@ -227,7 +238,7 @@ function renderWork(start,end){
     for(const group of groups){
       const details=document.createElement('details');details.className='work-group';
       const summary=document.createElement('summary'),label=document.createElement('span');label.className='work-label';
-      const name=document.createElement('span');name.textContent=preferences.privacy&&field==='project'?'Project '+(groups.indexOf(group)+1):group.name;
+      const name=document.createElement('span');name.textContent=preferences.privacy&&field==='project'?privateProjectLabel(group.name):group.name;
       const amount=document.createElement('small');amount.textContent=short(group.total)+' · '+(100*group.total/total).toFixed(1)+'%';amount.title=fmt(group.total)+' tokens';label.append(name,amount);
       const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=(100*group.total/groups[0].total)+'%';bar.append(fill);summary.append(label,bar);details.append(summary);
       for(const task of [...group.tasks.values()].sort((a,b)=>b.total-a.total)){
@@ -239,16 +250,16 @@ function renderWork(start,end){
   }
 }
 function renderYear(){
-  const year=$('year').value,end=year===data.today.slice(0,4)?data.today:year+'-12-31',start=year+'-01-01';
+  const year=$('year').value,{start,end}=selectedRange();
   const days=Object.entries(data.days).filter(([d])=>d>=start&&d<=end),max=Math.max(1,...days.map(([,d])=>d.total));
-  $('yearTotal').textContent=fmt(days.reduce((n,[,d])=>n+d.total,0))+' tokens · '+start+' through '+end;
+  $('yearTotal').textContent=short(days.reduce((n,[,d])=>n+d.total,0))+' tokens · '+start+' through '+end;
   $('rangeStart').textContent=start;$('rangeEnd').textContent=end+(end===data.today?' · Today':'');
   $('dayDate').hidden=true;$('detail').textContent='Hover or click a day to inspect its usage.';$('dayBreakdown').hidden=true;$('grid').replaceChildren();
   for(let i=0;i<utc(start).getUTCDay();i++)$('grid').append(document.createElement('span'));
   for(const item of dailySeries(data.days,start,end)){
     const key=item.date,d=data.days[key]||{total:0,input:0,output:0,subagent:0},b=document.createElement('button');
-    b.className='day';b.dataset.level=d.total?Math.max(1,Math.ceil(Math.sqrt(d.total/max)*4)):0;
-    b.title=key+' · '+fmt(d.total)+' tokens';b.setAttribute('aria-label',b.title);
+    b.className='day'+(key===selectedDay?' selected':'');b.dataset.level=d.total?Math.max(1,Math.ceil(Math.sqrt(d.total/max)*4)):0;
+    b.title=key+' · '+short(d.total)+' tokens';b.setAttribute('aria-label',b.title);
     if(key===data.today)b.setAttribute('aria-current','date');
     b.onmouseenter=b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');renderDay(key)};
     $('grid').append(b);
@@ -258,21 +269,138 @@ function renderYear(){
   const first=days.length?days[days.length-1][0]:null;
   const weekly=first?stackedWeeks(data.days,first,end):[];
   $('weeklyLegend').replaceChildren();$('weeklyModelLegend').replaceChildren();$('weeklyDetail').textContent='Hover or focus a segment for exact usage.';
-  $('weeklySubtitle').textContent='Mon–Sun · selected-year days only'+(end===data.today?' · current week partial':'');
+  $('weeklySubtitle').textContent='Mon–Sun · selected days only'+(end===data.today?' · current week partial':'');
   drawChart('weeklyChart',weekly,true);$('weeklyLedger').replaceChildren();
   for(const d of [...weekly].reverse()){const tr=document.createElement('tr');for(const value of [d.date,fmt(d.main),fmt(d.subagent),fmt(d.auditor||0),fmt(d.other||0),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('weeklyLedger').append(tr)}
   const trendStart=first?[first,offset(end,-89)].sort().pop():end;
   const trend=first?dailySeries(data.days,trendStart,end).map(d=>({...d,average:dailySeries(data.days,offset(d.date,-6),d.date).reduce((n,x)=>n+x.total,0)/7})):[];
-  $('dailySubtitle').textContent=first?trendStart+' through '+end:'Selected year';drawChart('dailyChart',trend);renderCarbon();renderWork(start,end);
+  $('dailySubtitle').textContent=first?trendStart+' through '+end:start+' through '+end;drawChart('dailyChart',trend);renderCarbon();renderWork(start,end);renderCosts(start,end);
 }
-async function load(){const r=await fetch('/api/usage');if(!r.ok)throw Error('Could not load usage');data=await r.json();stat('total',data.totals.total);stat('today',data.days[data.today]?.total||0);stat('sub',data.totals.subagent);stat('cache',data.totals.cached);$('auditorTotal').textContent='All-time: '+short(data.totals.auditor||0)+' auditor tokens · '+short(data.totals.other||0)+' other tokens. Other includes automatic approval reviews.';$('tz').textContent=data.timezone;$('cacheRate').textContent=(data.totals.input?Math.round(data.totals.cached/data.totals.input*100):0)+'% of input came from cache';breakdown('providers',data.providers);breakdown('models',data.models);$('sessions').textContent=fmt(data.sessions)+' sessions · '+fmt(data.totals.responses)+' responses';const previous=$('year').value;$('year').replaceChildren();[...new Set([data.today.slice(0,4),...Object.keys(data.days).filter(d=>d<=data.today).map(d=>d.slice(0,4))])].sort().reverse().forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;$('year').append(o)});if([...$('year').options].some(o=>o.value===previous))$('year').value=previous;renderYear();renderInsights();renderGroupEditor();renderPrivacy();$('coverage').replaceChildren();data.sources.forEach(s=>{const p=document.createElement('p');p.textContent=s.provider+' · '+(s.found?fmt(s.files)+' history files':'Source not found')+(s.errors?' · '+s.errors+' unreadable files':'');$('coverage').append(p)});$('status').textContent='Loaded '+new Date().toLocaleTimeString()+'. Sync to pick up new activity.'}
+let activeFilters=null,filterOptions=null,loadSequence=0,loading=false;
+function selectedRange(){const year=$('year').value;return activeFilters?{start:activeFilters.start,end:activeFilters.end}:{start:year+'-01-01',end:year===data.today.slice(0,4)?data.today:year+'-12-31'}}
+function presetRange(){
+  const today=data.today,period=$('period').value,year=$('year').value||today.slice(0,4);let start,end=today;
+  if(period==='custom')return;
+  if(period==='month')start=today.slice(0,7)+'-01';
+  else if(period==='lastmonth'){end=offset(today.slice(0,7)+'-01',-1);start=end.slice(0,7)+'-01'}
+  else if(period==='30')start=offset(today,-29);
+  else if(period==='all')start=filterOptions?.first||today;
+  else{start=year+'-01-01';end=year===today.slice(0,4)?today:year+'-12-31'}
+  $('fromDate').value=start;$('toDate').value=end;
+}
+function populateFilters(){
+  if(!filterOptions)filterOptions={providers:Object.keys(data.providers),models:Object.keys(data.models),projects:[...new Set((data.work||[]).map(t=>t.project))],first:Object.keys(data.days).sort()[0]};
+  for(const [id,values] of [['filterProvider',filterOptions.providers],['filterModel',filterOptions.models],['filterProject',filterOptions.projects]]){
+    const previous=$(id).value;$(id).replaceChildren();const all=document.createElement('option');all.value='';all.textContent='All';$(id).append(all);
+    const seen=new Set();for(const raw of [...values].sort()){const value=id==='filterProject'?(Object.hasOwn(preferences.projects,raw)?preferences.projects[raw]:raw):raw;if(seen.has(value))continue;seen.add(value);const o=document.createElement('option');o.value=value;o.textContent=preferences.privacy&&id==='filterProject'?privateProjectLabel(value):value;$(id).append(o)}
+    if([...$(id).options].some(o=>o.value===previous))$(id).value=previous;
+  }
+  if(!$('fromDate').value)presetRange();
+}
+function filterQuery(filters=activeFilters){
+  if(!filters)return '';
+  const query=new URLSearchParams();for(const [k,v] of Object.entries(filters)){if(k==='projects'){for(const project of v)query.append('project',project)}else if(v)query.set(k,v)}return '?'+query;
+}
+async function applyFilters(){
+  const start=$('fromDate').value,end=$('toDate').value;
+  if(!start||!end||start>end||end>data.today){$('status').textContent='Choose a valid date range ending today or earlier.';return}
+  const next={start,end,compare:$('comparePeriod').value,provider:$('filterProvider').value,model:$('filterModel').value,role:$('filterRole').value};
+  const project=$('filterProject').value;if(project)next.projects=filterOptions.projects.filter(raw=>(Object.hasOwn(preferences.projects,raw)?preferences.projects[raw]:raw)===project);
+  await load(next);
+}
+function money(n){if(n!==0&&Math.abs(n)<.000001)return (n<0?'-':'')+'<$0.000001';return new Intl.NumberFormat('en',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:Math.abs(n)<.01?6:2}).format(n)}
+function renderCosts(start,end){
+  const c=data.costs;if(!c)return;
+  $('costTotal').textContent=money(c.usd);$('cacheSavings').textContent=money(c.cache_savings_usd);
+  $('costCoverage').textContent=c.priced_tokens+c.unpriced_tokens?(100*c.priced_tokens/(c.priced_tokens+c.unpriced_tokens)).toFixed(1)+'%':'—';$('unpriced').textContent=fmt(c.unpriced_tokens)+' unpriced tokens';
+  const values=Object.fromEntries(Object.entries(c.days).map(([day,v])=>[day,{total:v.usd}]));
+  drawChart('costChart',dailySeries(values,start,end).map(d=>({...d,average:dailySeries(values,offset(d.date,-6),d.date).reduce((n,x)=>n+x.total,0)/7})),false,'USD');
+  $('costModels').replaceChildren();for(const [model,v] of Object.entries(c.models)){const p=document.createElement('p');p.textContent=model+' · '+(v.priced?money(v.usd):'Unpriced')+' · '+fmt(v.tokens)+' tokens';$('costModels').append(p)}
+}
+function renderFilterSummary(){
+  const selectedProject=activeFilters.projects?.length?(preferences.privacy?'Selected project':(preferences.projects[activeFilters.projects[0]]||activeFilters.projects[0])):'All projects';
+  $('filterSummary').textContent=activeFilters.start+' through '+activeFilters.end+' · '+(activeFilters.provider||'All providers')+' · '+(activeFilters.model||'All models')+' · '+(activeFilters.role||'All roles')+' · '+selectedProject;
+}
+async function load(filters=activeFilters){
+  const sequence=++loadSequence;loading=true;try{const r=await fetch('/api/usage'+filterQuery(filters));
+  if(!r.ok){const problem=await r.json().catch(()=>null);throw Error(typeof problem?.error==='string'?problem.error:'Could not load usage')}const incoming=await r.json();if(sequence!==loadSequence)return false;
+  data=incoming;activeFilters={...(filters||{}),...data.range};filterOptions=data.available;
+  $('year').replaceChildren();
+  for(const year of [...new Set([data.today.slice(0,4),activeFilters.end.slice(0,4),...filterOptions.years])].sort().reverse()){const o=document.createElement('option');o.value=year;o.textContent=year;$('year').append(o)}
+  $('year').value=activeFilters.end.slice(0,4);
+  $('fromDate').value=activeFilters.start;$('toDate').value=activeFilters.end;
+  stat('total',data.totals.total);stat('today',data.days[data.today]?.total||0);stat('sub',data.totals.subagent);stat('cache',data.totals.cached);
+  $('auditorTotal').textContent='Selected: '+short(data.totals.auditor||0)+' auditor tokens · '+short(data.totals.other||0)+' other tokens. Other includes automatic approval reviews.';
+  $('tz').textContent=data.timezone;$('cacheRate').textContent=(data.totals.input?Math.round(data.totals.cached/data.totals.input*100):0)+'% of input came from cache';
+  breakdown('providers',data.providers);breakdown('models',data.models);$('sessions').textContent=fmt(data.sessions)+' sessions · '+fmt(data.totals.responses)+' responses';
+  renderYear();if(selectedDay&&selectedDay>=activeFilters.start&&selectedDay<=activeFilters.end)renderDay(selectedDay);renderInsights();renderGroupEditor();renderPrivacy();populateFilters();renderSetup();
+  renderFilterSummary();
+  $('comparison').textContent=data.comparison?(data.comparison.kind==='month'?'Previous calendar month (':'Previous equal-length period (')+data.comparison.start+' through '+data.comparison.end+'): '+short(data.comparison.total)+' tokens · '+(data.comparison.total?((data.totals.total/data.comparison.total-1)*100).toFixed(1)+'% change':'No prior usage'):'No comparison available';
+  $('coverage').replaceChildren();data.sources.forEach(s=>{const p=document.createElement('p');p.textContent=s.provider+' · '+(s.found?fmt(s.files)+' history files':'Source not found')+(s.errors?' · '+s.errors+' unreadable files':'');$('coverage').append(p)});
+  $('status').textContent=data.syncing?'Scanning local histories…':data.sync_error||'Loaded '+new Date().toLocaleTimeString()+'.';if(data.syncing&&!syncPending)syncUsage(false);return true;
+  }finally{if(sequence===loadSequence)loading=false}
+}
+let syncPending=false,refreshTimer=null;
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function scheduleRefresh(){
+  clearTimeout(refreshTimer);
+  const seconds=Number($('autoRefresh').value);
+  if(seconds)refreshTimer=setTimeout(async()=>{if(!document.hidden&&!syncPending)await syncUsage();scheduleRefresh()},seconds*1000);
+}
+async function watchSync(){
+  let state;
+  do {
+    await pause(1500);
+    const response=await fetch('/api/state');if(!response.ok)throw Error('Cannot check import progress. Retry Sync usage.');
+    state=await response.json();
+  } while(state.syncing);
+  if(state.sync_error)throw Error(state.sync_error);
+  return state;
+}
+async function syncUsage(start=true){
+  if(syncPending)return;
+  syncPending=true;$('refresh').disabled=true;$('status').textContent='Scanning local histories…';
+  try{
+    if(start){const response=await fetch('/api/sync',{method:'POST'});if(!response.ok)throw Error('Sync could not start. Retry Sync usage.');}
+    await watchSync();while(loading)await pause(100);await load();
+  }catch(error){$('status').textContent=error.message}
+  finally{syncPending=false;$('refresh').disabled=false}
+}
+function renderSetup(){
+  const panel=$('setupPanel');
+  let dismissed=false;try{dismissed=localStorage.getItem('tokes-setup-dismissed')==='true'}catch(_){}
+  panel.open=!dismissed||data.available?.first===null;
+  $('setupSources').replaceChildren();
+  for(const source of data.sources){const p=document.createElement('p');p.textContent=source.provider+' · '+(!source.found?'Not detected':data.syncing?'Scanning…':source.files===0?'Folder found, no retained histories':source.files+' history files')+(source.errors?' · '+source.errors+' unreadable files':'');$('setupSources').append(p)}
+  $('setupState').textContent=data.syncing?'Import running in the background. Usage appears when it finishes.':data.sync_error||'Local import ready. No account credentials required.';
+}
+
 $('carbonScenario').onchange=()=>{renderCarbon();$('dayBreakdown').hidden=true};
-$('privacy').onclick=()=>{preferences.privacy=!preferences.privacy;savePreferences();renderPrivacy();renderYear()};
+$('privacy').onclick=()=>{preferences.privacy=!preferences.privacy;savePreferences();renderPrivacy();populateFilters();renderYear();if(activeFilters)renderFilterSummary()};
 $('editProject').onchange=()=>{$('projectName').value=preferences.projects[$('editProject').value]||$('editProject').value};
 $('editTask').onchange=()=>{const task=data.work.find(t=>taskKey(t)===$('editTask').value);if(task)$('taskActivity').value=workTask(task).activity};
-$('saveProject').onclick=()=>{const name=$('projectName').value.trim();if(!name){$('groupStatus').textContent='Enter a project name.';return}Object.defineProperty(preferences.projects,$('editProject').value,{value:name,enumerable:true,writable:true,configurable:true});savePreferences();renderYear()};
-$('resetProject').onclick=()=>{delete preferences.projects[$('editProject').value];savePreferences();renderGroupEditor();renderYear()};
-$('saveActivity').onclick=()=>{preferences.activities[$('editTask').value]=$('taskActivity').value;savePreferences();renderYear()};
+let editingProject=false;
+async function projectChanged(project,name){
+  if(editingProject)return;editingProject=true;
+  const nextProjects={...preferences.projects};
+  try{
+    if(project!==undefined){if(name===undefined)delete nextProjects[project];else Object.defineProperty(nextProjects,project,{value:name,enumerable:true,writable:true,configurable:true})}
+    const next=activeFilters?{...activeFilters}:null;if(next)delete next.projects;
+    const accepted=await load(next);if(accepted===false)throw Error('Selection changed during rename; retry the edit.');
+    preferences.projects=nextProjects;$('filterProject').value='';
+    populateFilters();renderYear();renderGroupEditor();if(activeFilters)renderFilterSummary();
+    if(savePreferences())$('groupStatus').textContent='Saved. Project filter cleared; select the renamed or merged group to filter again.';
+  }finally{editingProject=false}
+}
+$('saveProject').onclick=()=>{const name=$('projectName').value.trim();if(!name){$('groupStatus').textContent='Enter a project name.';return}projectChanged($('editProject').value,name).catch(e=>{$('status').textContent=e.message})};
+$('resetProject').onclick=()=>{projectChanged($('editProject').value).catch(e=>{$('status').textContent=e.message})};
+$('saveActivity').onclick=()=>{preferences.activities[$('editTask').value]=$('taskActivity').value;savePreferences();populateFilters();renderYear()};
 $('resetActivity').onclick=()=>{delete preferences.activities[$('editTask').value];savePreferences();renderGroupEditor();renderYear()};
-$('year').onchange=renderYear;$('refresh').onclick=async()=>{const b=$('refresh');b.disabled=true;$('status').textContent='Scanning local histories…';try{const r=await fetch('/api/sync',{method:'POST'});if(!r.ok)throw Error('Sync failed');await load()}catch(e){$('status').textContent=e.message}finally{b.disabled=false}};load().catch(e=>{$('status').textContent=e.message;$('status').classList.add('error')});
+async function resetFilters(){$('filterProvider').value=$('filterModel').value=$('filterProject').value=$('filterRole').value='';$('period').value='year';$('comparePeriod').value='previous';await load(null)}
+// Bind controls
+$('period').onchange=presetRange;$('fromDate').onchange=$('toDate').onchange=()=>{$('period').value='custom'};$('applyFilters').onclick=()=>applyFilters().catch(e=>{$('status').textContent=e.message});$('resetFilters').onclick=()=>resetFilters().catch(e=>{$('status').textContent=e.message});$('year').onchange=()=>{$('period').value='year';presetRange();applyFilters().catch(e=>{$('status').textContent=e.message})};$('refresh').onclick=()=>syncUsage();
+$('autoRefresh').onchange=()=>{try{localStorage.setItem('tokes-refresh',$('autoRefresh').value)}catch(_){}scheduleRefresh()};
+$('dismissSetup').onclick=()=>{try{localStorage.setItem('tokes-setup-dismissed','true')}catch(_){}$('setupPanel').open=false};
+try{const saved=localStorage.getItem('tokes-refresh');if(['0','60','300'].includes(saved))$('autoRefresh').value=saved}catch(_){}
+scheduleRefresh();load().catch(e=>{$('status').textContent=e.message;$('status').classList.add('error')});
 </script><script src="/vendor/html-to-image.js"></script><script src="/share.js"></script></body></html>

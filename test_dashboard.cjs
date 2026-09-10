@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 class Element {
   constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.style={};this.attrs={};this.value='2026';this.classList={add(){},remove(){}};}
+  get options(){return this.children.filter(n=>n.tag==='option')}
   append(...nodes){this.children.push(...nodes)}
   replaceChildren(...nodes){this.children=nodes}
   setAttribute(k,v){this.attrs[k]=v}
@@ -14,7 +15,7 @@ const document = {
 };
 const script=fs.readFileSync('index.html','utf8').split('<script>')[1].split('</script>')[0];
 const context=vm.createContext({document,Intl,Date});
-vm.runInContext(script.slice(0,script.indexOf("$('year').onchange=")),context);
+vm.runInContext(script.slice(0,script.indexOf("// Bind controls")),context);
 const evaluate=code=>vm.runInContext(code,context);
 const plain=code=>JSON.parse(JSON.stringify(evaluate(code)));
 assert.equal(evaluate("dailySeries({},'2024-01-01','2024-12-31').length"),366);
@@ -80,7 +81,7 @@ assert.match(elements.get('weeklyChart').children[0].children.filter(n=>n.attrs.
 elements.get('year').value='2024';evaluate('renderYear()');
 buttons=elements.get('grid').children.filter(n=>n.tag==='button');
 assert.equal(buttons.length,366);assert.match(buttons.at(-1).title,/2024-12-31/);
-assert.equal(elements.get('weeklyChart').textContent,'No recorded usage in this year.');
+assert.equal(elements.get('weeklyChart').textContent,'No recorded usage in this selection.');
 assert.equal(plain("insights({},'2026-09-10')").peakDay.date,null);
 elements.get('year').value='2026';elements.get('carbonScenario').value='central';
 evaluate(`data.carbon={totals:{low:{tonnes_co2:.01,kwh:10,flights:.04},central:{tonnes_co2:.1,kwh:100,flights:.4},high:{tonnes_co2:1,kwh:1000,flights:4}},days:{'2026-09-08':{low:{tonnes_co2:.01},central:{tonnes_co2:.1},high:{tonnes_co2:1}}},models:{},sources:[],grid_kg_co2_per_kwh:{low:.05,central:.445,high:.8}};renderCarbon()`);
@@ -105,3 +106,78 @@ assert.equal(elements.get('workProjects').children[0].children[0].children[0].ch
 assert.equal(elements.get('workProjects').children[0].children[1].textContent,'Task label hidden');
 evaluate("preferences.privacy=false;renderWork('2026-01-01','2026-09-10')");
 assert.equal(elements.get('workProjects').children[0].children[0].children[0].children[0].textContent,'Merged');
+
+evaluate("data.costs={usd:1,cache_savings_usd:2,priced_tokens:100,unpriced_tokens:0,days:{'2026-09-10':{usd:1}},models:{}};renderCosts('2026-09-09','2026-09-10')");
+assert.equal(elements.get('costTotal').textContent,'$1.00');
+assert.equal(elements.get('costChart').children[0].tag,'svg');
+evaluate("data={today:'2026-09-10',days:{'2026-08-31':{total:490}}};activeFilters={start:'2026-08-01',end:'2026-08-31'};renderInsights()");
+assert.equal(elements.get('dailyAverage').textContent,'70');
+assert.equal(elements.get('thisWeek').textContent,'490');
+
+
+evaluate("privateProjectIds.clear();filterOptions={providers:[],models:[],projects:['A'],years:['2026']};$('filterProject').value='A';preferences.projects={};preferences.privacy=true;populateFilters()");
+assert.equal(elements.get('filterProject').value,'A');
+assert.equal(elements.get('filterProject').options[1].textContent,'Project 1');
+evaluate("preferences.privacy=false;populateFilters()");
+assert.equal(elements.get('filterProject').value,'A');
+evaluate("activeFilters={start:'2026-08-01',end:'2026-08-31',projects:['A']};preferences.projects={A:'Example'};preferences.privacy=true;renderFilterSummary()");
+assert.match(elements.get('filterSummary').textContent,/Selected project$/);
+evaluate("preferences.privacy=false;renderFilterSummary()");
+assert.match(elements.get('filterSummary').textContent,/Example$/);
+assert.equal(evaluate('short(231812345)'),'231.8M');
+
+evaluate("privateProjectIds.clear();filterOptions={providers:[],models:[],projects:['A','Z'],years:['2026']};preferences.projects={};preferences.privacy=true;data.work=[{project:'A',activity:'Implementation',title:'A task',basis:'title',days:{'2026-09-10':10}},{project:'Z',activity:'Implementation',title:'Z task',basis:'title',days:{'2026-09-10':90}}];renderWork('2026-09-10','2026-09-10');populateFilters()");
+assert.equal(elements.get('workProjects').children[0].children[0].children[0].children[0].textContent,'Project 2');
+assert.equal(elements.get('filterProject').options[1].textContent,'Project 1');
+evaluate("data.work=data.work.filter(t=>t.project==='A');renderWork('2026-09-10','2026-09-10')");
+assert.equal(elements.get('workProjects').children[0].children[0].children[0].children[0].textContent,'Project 1');
+assert.equal(evaluate('money(0.00012)'),'$0.00012');
+assert.equal(evaluate('money(0.00000001)'),'<$0.000001');
+context.localStorage={getItem:()=> 'true'};
+evaluate("data.sessions=0;data.available={first:'2026-07-01'};data.sources=[];renderSetup()");
+assert.equal(elements.get('setupPanel').open,false);
+evaluate("data.available.first=null;renderSetup()");
+assert.equal(elements.get('setupPanel').open,true);
+context.originalLoad=evaluate('load');
+(async()=>{
+  evaluate("load=async next=>{data.captured=next};activeFilters={start:'2026-08-01',end:'2026-08-31',provider:'Codex',projects:['A','B']}");
+  await evaluate('projectChanged()');
+  assert.equal(evaluate('data.captured.projects'),undefined);
+  assert.equal(evaluate('data.captured.provider'),'Codex');
+  assert.equal(evaluate('activeFilters.projects.length'),2);
+  assert.equal(elements.get('filterProject').value,'');
+  evaluate("preferences.projects={A:'Merged'};$('filterProject').value='Merged';load=async()=>{throw Error('network unavailable')}");
+  await assert.rejects(evaluate("projectChanged('A','Renamed')"),/network unavailable/);
+  assert.equal(evaluate('preferences.projects.A'),'Merged');
+  assert.equal(elements.get('filterProject').value,'Merged');
+  evaluate("load=async()=>{if(preferences.projects.A!=='Merged')throw Error('Transient alias visible');return false}");
+  await assert.rejects(evaluate("projectChanged('A','Transient')"),/Selection changed/);
+  assert.equal(evaluate('preferences.projects.A'),'Merged');
+
+  context.setTimeout=fn=>{evaluate('loading=false');fn();return 1};
+  evaluate("watchSync=async()=>{};load=async()=>{data.reloadCount=(data.reloadCount||0)+1};loading=true;syncPending=false");
+  await evaluate('syncUsage(false)');
+  assert.equal(evaluate('data.reloadCount'),1);
+  evaluate("load=async()=>true");
+  context.localStorage={getItem:()=> 'true',setItem:()=>{throw Error('quota')}};
+  await evaluate("projectChanged('A','Renamed')");
+  assert.match(elements.get('groupStatus').textContent,/storage unavailable/);
+  await evaluate("projectChanged('A')");
+  assert.match(elements.get('groupStatus').textContent,/storage unavailable/);
+  context.fetch=async()=>({ok:true,json:async()=>({today:'2026-09-10',range:{start:'2026-01-01',end:'2026-09-10'},days:{'2026-09-10':{total:120,input:100,output:20,cached:50,subagent:0,breakdown:{main:{alpha:120}}}},totals:{total:120,input:100,cached:50,subagent:0,responses:1},providers:{Codex:120},models:{alpha:120},sessions:1,timezone:'UTC',work:[],sources:[],available:{providers:['Codex'],models:['alpha'],projects:[],years:['2025','2026'],first:'2025-01-01'},syncing:false})});
+  evaluate("load=originalLoad;$('year').value='2025';activeFilters={start:'2025-01-01',end:'2025-12-31'}");
+  evaluate("selectedDay='2026-09-10'");
+  await evaluate('resetFilters()');
+  assert.match(elements.get('grid').children.filter(n=>n.tag==='button').at(-1).className,/selected/);
+  assert.equal(elements.get('dayDate').textContent,'2026-09-10');
+  assert.equal(elements.get('year').value,'2026');
+  assert.equal(elements.get('fromDate').value,'2026-01-01');
+  assert.equal(elements.get('toDate').value,'2026-09-10');
+  assert.equal(evaluate('activeFilters.start'),'2026-01-01');
+  assert.equal(elements.get('total').textContent,'120');
+
+  context.fetch=async()=>({ok:false,json:async()=>({error:'cost_rates must be an object'})});
+  await assert.rejects(evaluate('load(null)'),/cost_rates must be an object/);
+  context.fetch=async()=>({ok:false,json:async()=>{throw Error('bad JSON')}});
+  await assert.rejects(evaluate('load(null)'),/Could not load usage/);
+})().catch(error=>{console.error(error);process.exitCode=1});
