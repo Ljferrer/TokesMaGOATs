@@ -82,7 +82,9 @@
     host.append(button);
   }
   const main=document.querySelector('main');
-  addButton(main,'Dashboard',document.querySelector('header'));
+  const header=document.querySelector('header');
+  addButton(main,'Dashboard',header);
+  header.insertBefore(header.querySelector('.snapshot-button'),document.getElementById('refresh'));
   document.querySelectorAll('section.panel').forEach(panel=>{
     const heading=panel.querySelector('h2');
     if (!heading || panel.querySelector('#coverage')) return;
