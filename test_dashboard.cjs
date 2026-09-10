@@ -97,3 +97,11 @@ assert.equal(evaluate("workGroups('project','2026-01-01','2026-09-10')[0].total"
 assert.equal(evaluate("workGroups('project','2026-01-01','2026-09-10')[0].tasks.size"),1);
 evaluate("renderWork('2026-01-01','2026-09-10')");
 assert.equal(elements.get('workProjects').children[0].tag,'details');
+evaluate("preferences.projects.Example='Merged';preferences.activities[taskKey(data.work[0])]='Research & planning'");
+assert.equal(evaluate("workGroups('project','2026-01-01','2026-09-10')[0].name"),'Merged');
+assert.equal(evaluate("workGroups('activity','2026-01-01','2026-09-10').reduce((n,g)=>n+g.total,0)"),140);
+evaluate("preferences.privacy=true;renderWork('2026-01-01','2026-09-10')");
+assert.equal(elements.get('workProjects').children[0].children[0].children[0].children[0].textContent,'Project 1');
+assert.equal(elements.get('workProjects').children[0].children[1].textContent,'Task label hidden');
+evaluate("preferences.privacy=false;renderWork('2026-01-01','2026-09-10')");
+assert.equal(elements.get('workProjects').children[0].children[0].children[0].children[0].textContent,'Merged');

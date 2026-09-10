@@ -84,7 +84,7 @@
   const main=document.querySelector('main');
   const header=document.querySelector('header');
   addButton(main,'Dashboard',header);
-  header.insertBefore(header.querySelector('.snapshot-button'),document.getElementById('refresh'));
+  header.insertBefore(header.querySelector('.snapshot-button'),header.querySelector('button'));
   document.querySelectorAll('section.panel').forEach(panel=>{
     const heading=panel.querySelector('h2');
     if (!heading || panel.querySelector('#coverage')) return;
