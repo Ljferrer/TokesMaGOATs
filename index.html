@@ -6,16 +6,18 @@
 .heatmap{margin-left:auto}.chart-scroll{overflow-x:auto}.chart{width:100%;min-width:500px;display:block}.chart text{fill:var(--muted);font:11px monospace}.chart .guide{stroke:var(--line);stroke-dasharray:3 5}.chart .area{fill:#b7ee8214}.chart .trend{fill:none;stroke:var(--green);stroke-width:2}.chart .average{fill:none;stroke:#91b5eb;stroke-width:2}.chart circle{fill:var(--green);opacity:0}.chart circle:hover,.chart circle:focus{opacity:1}.chart rect.week{fill:#80b75e}.chart rect.week:hover,.chart rect.week:focus{fill:var(--green)}.chart-key{display:flex;gap:20px;color:var(--muted);font-size:12px;margin:12px 0}.chart-key span::before{content:'●';color:var(--green);margin-right:6px}.chart-key span:last-child::before{color:#91b5eb}details{margin-top:18px}summary{cursor:pointer;color:var(--muted)}.range-labels{display:flex;justify-content:space-between;color:var(--muted);font:11px monospace;margin-top:12px}.stat small{display:block;line-height:1.5}.empty-chart{color:var(--muted);padding:50px 0;text-align:center}
 
 .stack-legend{display:flex;flex-wrap:wrap;gap:16px 32px;margin:8px 0 24px}.legend-group{flex:1;min-width:220px}.legend-group strong{display:block;font-size:12px;margin-bottom:10px}.legend-models{display:flex;flex-wrap:wrap;gap:8px 16px}.legend-item{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}.swatch{width:13px;height:13px;display:inline-block;border-radius:2px}.swatch.hatched{background-image:repeating-linear-gradient(135deg,transparent 0 4px,#10141199 4px 6px)}.chart .segment:hover,.chart .segment:focus{stroke:var(--text);stroke-width:1.5;outline:none}
+
+.day-breakdown{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;align-items:center;border-top:1px solid var(--line);margin-top:18px;padding-top:20px}.day-breakdown[hidden]{display:none}.day-pie{display:block;width:220px;height:220px}.pie-slice:hover,.pie-slice:focus{stroke:var(--text);stroke-width:2;outline:none}.pie-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;font-size:12px}.pie-item .amount{margin-left:auto;color:var(--muted);font-family:monospace}#dailyLedger>summary{color:var(--text);font-size:16px}#dailyLedger>summary small{font-size:12px}#dailyLedger[open]>summary{margin-bottom:18px}@media(max-width:550px){.day-breakdown{grid-template-columns:1fr}.day-pie{margin:auto}}
 </style></head><body><main>
 <header><div class="brand">Tokes<span>MaGoats</span> <small> / token ledger</small></div><button id="refresh">↻ Sync usage</button></header>
 <div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Parent sessions and subagents, together.</p>
 <div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
 <div class="stats"><div class="stat">Largest day · all time<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · all time<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">This week<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
-<section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Select a day to inspect its usage.</div></section>
+<section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Hover or click a day to inspect its usage.</div><div id="dayBreakdown" class="day-breakdown" hidden><div id="dayPie"></div><div id="dayPieLegend"></div></div></section>
 <section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div id="weeklyLegend" class="stack-legend"></div><div class="chart-scroll" id="weeklyChart"></div><div id="weeklyDetail" class="detail" role="status">Hover or focus a segment for exact usage.</div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Main chat</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
 <section class="panel"><div class="panelhead"><h2>Daily pace</h2><small id="dailySubtitle"></small></div><div class="chart-key"><span>Daily tokens</span><span>7-day average</span></div><div class="chart-scroll" id="dailyChart"></div></section>
 <div class="columns"><section class="panel"><h2>By client</h2><div id="providers"></div><p class="muted" id="sessions"></p></section><section class="panel"><h2>Models</h2><div id="models"></div></section></div>
-<section class="panel"><div class="panelhead"><h2>Daily ledger</h2><small>Selected year · newest first</small></div><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
+<details class="panel" id="dailyLedger"><summary>Daily ledger <small>· Selected year · newest first</small></summary><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></details>
 <section class="panel"><h2>Coverage</h2><div id="coverage"></div><p class="muted">Local Codex sessions, archived sessions, and Claude Code histories are counted recursively. Account identity is not reliably recorded in these logs; totals combine all accounts present in each configured source. Deleted history and activity on other computers are not available here.</p><div id="status" class="status" role="status">Reading usage…</div></section>
 <footer>Stored on this computer · No telemetry · Cached tokens are a subset of input; reasoning tokens are a subset of output. These are token counts, not subscription limits or billed cost.</footer></main>
 <script>
@@ -114,6 +116,30 @@ function drawChart(id,series,bar=false){
   for(const i of indices){const x=bar?left+(i+.5)*w/series.length:left+i*w/Math.max(1,series.length-1);svg.append(chartNode('text',{x,y:height-12,'text-anchor':i===0?'start':i===series.length-1?'end':'middle'},series[i].date.slice(5)))}
   container.append(svg);
 }
+function renderDay(key){
+  const day=data.days[key]||{total:0,subagent:0};
+  $('detail').textContent=key+' · '+fmt(day.total)+' total · '+fmt(day.subagent)+' subagent tokens';
+  $('dayBreakdown').hidden=false;$('dayPie').replaceChildren();$('dayPieLegend').replaceChildren();
+  if(!day.total){$('dayPie').textContent='No recorded tokens for this day.';return}
+  const segments=stackedWeeks(data.days,key,key)[0].segments,colors=modelColors();
+  const svg=chartNode('svg',{viewBox:'0 0 220 220',class:'day-pie',role:'img','aria-label':`Token breakdown for ${key}: main chat and subagents by model`}),defs=chartNode('defs');
+  svg.append(defs);let angle=-Math.PI/2;
+  segments.forEach((segment,i)=>{
+    const color=colors.get(segment.model),id='day-pattern-'+i;
+    if(segment.role==='subagent'){
+      const pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});
+      pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.6,'stroke-width':2}));defs.append(pattern);
+    }
+    const share=segment.total/day.total,end=angle+share*2*Math.PI,point=a=>`${110+100*Math.cos(a)} ${110+100*Math.sin(a)}`;
+    const attrs={fill:segment.role==='main'?color:`url(#${id})`,class:'pie-slice',tabindex:0,stroke:'#101411','stroke-width':1};
+    const slice=share>=1?chartNode('circle',{...attrs,cx:110,cy:110,r:100}):chartNode('path',{...attrs,d:`M 110 110 L ${point(angle)} A 100 100 0 ${share>.5?1:0} 1 ${point(end)} Z`});
+    const role=segment.role==='main'?'Main chat':'Subagent',label=`${role} · ${segment.model}: ${fmt(segment.total)} tokens · ${(share*100).toFixed(1)}%`;
+    slice.setAttribute('aria-label',label);slice.append(chartNode('title',{},label));svg.append(slice);angle=end;
+    const row=document.createElement('div');row.className='pie-item';const swatch=document.createElement('i');swatch.className='swatch'+(segment.role==='subagent'?' hatched':'');swatch.style.backgroundColor=color;
+    const name=document.createElement('span');name.textContent=role+' · '+segment.model;const amount=document.createElement('span');amount.className='amount';amount.textContent=fmt(segment.total)+' · '+(share*100).toFixed(1)+'%';row.append(swatch,name,amount);$('dayPieLegend').append(row);
+  });
+  $('dayPie').append(svg);
+}
 function renderInsights(){
   const s=insights(data.days,data.today);
   stat('peakDay',s.peakDay.total);$('peakDate').textContent=s.peakDay.date||'No usage yet';
@@ -126,14 +152,14 @@ function renderYear(){
   const days=Object.entries(data.days).filter(([d])=>d>=start&&d<=end),max=Math.max(1,...days.map(([,d])=>d.total));
   $('yearTotal').textContent=fmt(days.reduce((n,[,d])=>n+d.total,0))+' tokens · '+start+' through '+end;
   $('rangeStart').textContent=start;$('rangeEnd').textContent=end+(end===data.today?' · Today':'');
-  $('detail').textContent='Select a day to inspect its usage.';$('grid').replaceChildren();
+  $('detail').textContent='Hover or click a day to inspect its usage.';$('dayBreakdown').hidden=true;$('grid').replaceChildren();
   for(let i=0;i<utc(start).getUTCDay();i++)$('grid').append(document.createElement('span'));
   for(const item of dailySeries(data.days,start,end)){
     const key=item.date,d=data.days[key]||{total:0,input:0,output:0,subagent:0},b=document.createElement('button');
     b.className='day';b.dataset.level=d.total?Math.max(1,Math.ceil(Math.sqrt(d.total/max)*4)):0;
     b.title=key+' · '+fmt(d.total)+' tokens';b.setAttribute('aria-label',b.title);
     if(key===data.today)b.setAttribute('aria-current','date');
-    b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');$('detail').textContent=key+' · '+fmt(d.total)+' total · '+fmt(d.subagent)+' subagent tokens'};
+    b.onmouseenter=b.onfocus=b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');renderDay(key)};
     $('grid').append(b);
   }
   $('ledger').replaceChildren();
