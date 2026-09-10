@@ -57,6 +57,8 @@ assert.equal(stacks[0].segments.reduce((n,s)=>n+s.total,0),stacks[0].total);
 assert.deepEqual(stacks[0].segments.map(s=>[s.role,s.model,s.total]),[['main','alpha',70],['main','beta',50],['subagent','alpha',20]]);
 const segments=elements.get('weeklyChart').children[0].children.filter(n=>n.attrs.class==='segment');
 assert.equal(segments.length,3);
+assert.match(segments[0].attrs['clip-path'],/week-clip-/);
+assert.equal(elements.get('weeklyModelLegend').children.length,2);
 assert.ok(segments[2].attrs.fill.startsWith('url(#subagent-model-'));
 assert.ok(Number(segments[2].attrs.y)<Number(segments[0].attrs.y));
 segments[2].onfocus();assert.match(elements.get('weeklyDetail').textContent,/Subagent · alpha · 20 tokens/);
