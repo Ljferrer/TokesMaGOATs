@@ -2,11 +2,16 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TokesMaGoats · Token ledger</title>
 <style>
 :root{color-scheme:dark;--bg:#101411;--panel:#171d18;--line:#303a31;--text:#e7eadc;--muted:#9da995;--green:#b7ee82}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px 'Helvetica Neue',sans-serif}main{max-width:1200px;margin:auto;padding:42px 32px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:24px}.brand{font:700 20px Georgia,serif}.brand span{color:var(--green)}button,select{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:10px 14px;border-radius:6px;cursor:pointer}button:hover{border-color:var(--green)}button:disabled{opacity:.5}small,.muted{color:var(--muted)}.eyebrow{letter-spacing:2px;font:11px monospace;color:var(--green);margin-top:46px}h1{font:normal 48px Georgia,serif;margin:12px 0}p{line-height:1.6}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:32px 0;border-radius:8px;overflow:hidden}.stat{background:var(--panel);padding:24px}.stat strong{display:block;font:32px monospace;margin:12px 0}.stat small{font-size:12px}.panel{border:1px solid var(--line);border-radius:8px;padding:24px;margin-bottom:24px}.panelhead{display:flex;align-items:center;justify-content:space-between;gap:16px}h2{font-size:16px;font-weight:500;margin:0 0 18px}.gridwrap{overflow-x:auto;padding:20px 0 8px}.heatmap{display:grid;grid-template-rows:repeat(7,13px);grid-auto-flow:column;grid-auto-columns:13px;gap:5px;width:max-content}.day{border-radius:3px;background:#242d25;border:1px solid #ffffff06;padding:0;width:13px;height:13px}.day[data-level="1"]{background:#345237}.day[data-level="2"]{background:#54804a}.day[data-level="3"]{background:#80b75e}.day[data-level="4"]{background:#b7ee82}.day.selected{outline:2px solid white;outline-offset:1px}.legend{display:flex;gap:6px;justify-content:flex-end;align-items:center;margin-top:16px;font-size:11px;color:var(--muted)}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.row{display:flex;justify-content:space-between;gap:20px;margin:18px 0 8px}.bar{height:5px;background:#273128;border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--green)}table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th{color:var(--muted);font-weight:400}td,th{padding:13px 0;border-bottom:1px solid var(--line)}td:not(:first-child),th:not(:first-child){text-align:right;font-family:monospace}.status{font:12px monospace;color:var(--muted);margin-top:20px}footer{color:var(--muted);font-size:12px;padding:10px 0 30px}.detail{min-height:23px;margin-top:18px;color:var(--green);font-family:monospace}.error{color:#ffb5a4}@media(max-width:700px){main{padding:24px 16px}h1{font-size:36px}.stats{grid-template-columns:1fr 1fr}.columns{grid-template-columns:1fr;gap:0}.stat{padding:18px}.stat strong{font-size:25px}.panel{padding:18px}}
+
+.heatmap{margin-left:auto}.chart-scroll{overflow-x:auto}.chart{width:100%;min-width:500px;display:block}.chart text{fill:var(--muted);font:11px monospace}.chart .guide{stroke:var(--line);stroke-dasharray:3 5}.chart .area{fill:#b7ee8214}.chart .trend{fill:none;stroke:var(--green);stroke-width:2}.chart .average{fill:none;stroke:#91b5eb;stroke-width:2}.chart circle{fill:var(--green);opacity:0}.chart circle:hover,.chart circle:focus{opacity:1}.chart rect.week{fill:#80b75e}.chart rect.week:hover,.chart rect.week:focus{fill:var(--green)}.chart-key{display:flex;gap:20px;color:var(--muted);font-size:12px;margin:12px 0}.chart-key span::before{content:'●';color:var(--green);margin-right:6px}.chart-key span:last-child::before{color:#91b5eb}details{margin-top:18px}summary{cursor:pointer;color:var(--muted)}.range-labels{display:flex;justify-content:space-between;color:var(--muted);font:11px monospace;margin-top:12px}.stat small{display:block;line-height:1.5}.empty-chart{color:var(--muted);padding:50px 0;text-align:center}
 </style></head><body><main>
 <header><div class="brand">Tokes<span>MaGoats</span> <small> / token ledger</small></div><button id="refresh">↻ Sync usage</button></header>
 <div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Parent sessions and subagents, together.</p>
 <div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
-<section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Select a day to inspect its usage.</div></section>
+<div class="stats"><div class="stat">Largest day · all time<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · all time<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">This week<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
+<section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Select a day to inspect its usage.</div></section>
+<section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div class="chart-scroll" id="weeklyChart"></div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Tokens</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
+<section class="panel"><div class="panelhead"><h2>Daily pace</h2><small id="dailySubtitle"></small></div><div class="chart-key"><span>Daily tokens</span><span>7-day average</span></div><div class="chart-scroll" id="dailyChart"></div></section>
 <div class="columns"><section class="panel"><h2>By client</h2><div id="providers"></div><p class="muted" id="sessions"></p></section><section class="panel"><h2>Models</h2><div id="models"></div></section></div>
 <section class="panel"><div class="panelhead"><h2>Daily ledger</h2><small>Selected year · newest first</small></div><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
 <section class="panel"><h2>Coverage</h2><div id="coverage"></div><p class="muted">Local Codex sessions, archived sessions, and Claude Code histories are counted recursively. Account identity is not reliably recorded in these logs; totals combine all accounts present in each configured source. Deleted history and activity on other computers are not available here.</p><div id="status" class="status" role="status">Reading usage…</div></section>
@@ -15,7 +20,90 @@
 let data;const $=id=>document.getElementById(id),fmt=n=>new Intl.NumberFormat().format(n),short=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
 function stat(id,n){$(id).textContent=short(n);$(id).title=fmt(n)+' tokens'}
 function breakdown(id,values){$(id).replaceChildren();const max=Math.max(1,...Object.values(values));Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([name,n])=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span'),value=document.createElement('span');label.textContent=name;value.textContent=short(n);value.title=fmt(n);row.append(label,value);const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=(n/max*100)+'%';bar.append(fill);$(id).append(row,bar)})}
-function renderYear(){const year=$('year').value,days=Object.entries(data.days).filter(([d])=>d.startsWith(year)),max=Math.max(1,...days.map(([,d])=>d.total));$('yearTotal').textContent=fmt(days.reduce((n,[,d])=>n+d.total,0))+' tokens in '+year;$('grid').replaceChildren();const start=new Date(Date.UTC(+year,0,1)),end=new Date(Date.UTC(+year+1,0,1));for(let i=0;i<start.getUTCDay();i++)$('grid').append(document.createElement('span'));for(let date=start;date<end;date.setUTCDate(date.getUTCDate()+1)){const key=date.toISOString().slice(0,10),d=data.days[key]||{total:0,input:0,output:0,subagent:0},b=document.createElement('button');b.className='day';b.dataset.level=d.total?Math.max(1,Math.ceil(Math.sqrt(d.total/max)*4)):0;b.title=key+' · '+fmt(d.total)+' tokens';b.setAttribute('aria-label',b.title);b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');$('detail').textContent=key+' · '+fmt(d.total)+' total · '+fmt(d.subagent)+' subagent tokens'};$('grid').append(b)}$('ledger').replaceChildren();for(const [day,d] of days.sort((a,b)=>b[0].localeCompare(a[0]))){const tr=document.createElement('tr');for(const value of [day,fmt(d.input),fmt(d.output),fmt(d.subagent),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('ledger').append(tr)}}
-async function load(){const r=await fetch('/api/usage');if(!r.ok)throw Error('Could not load usage');data=await r.json();stat('total',data.totals.total);stat('today',data.days[data.today]?.total||0);stat('sub',data.totals.subagent);stat('cache',data.totals.cached);$('tz').textContent=data.timezone;$('cacheRate').textContent=(data.totals.input?Math.round(data.totals.cached/data.totals.input*100):0)+'% of input came from cache';breakdown('providers',data.providers);breakdown('models',data.models);$('sessions').textContent=fmt(data.sessions)+' sessions · '+fmt(data.totals.responses)+' responses';const previous=$('year').value;$('year').replaceChildren();[...new Set([data.today.slice(0,4),...Object.keys(data.days).map(d=>d.slice(0,4))])].sort().reverse().forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;$('year').append(o)});if([...$('year').options].some(o=>o.value===previous))$('year').value=previous;renderYear();$('coverage').replaceChildren();data.sources.forEach(s=>{const p=document.createElement('p');p.textContent=s.provider+' · '+(s.found?fmt(s.files)+' history files':'Source not found')+(s.errors?' · '+s.errors+' unreadable files':'');$('coverage').append(p)});$('status').textContent='Loaded '+new Date().toLocaleTimeString()+'. Sync to pick up new activity.'}
+const DAY=86400000;
+const utc=key=>new Date(key+'T00:00:00Z');
+const dateKey=date=>date.toISOString().slice(0,10);
+const offset=(key,n)=>dateKey(new Date(+utc(key)+n*DAY));
+function monday(key){return offset(key,-((utc(key).getUTCDay()+6)%7))}
+function dailySeries(days,start,end){
+  const result=[];
+  for(let key=start;key<=end;key=offset(key,1)) result.push({date:key,total:days[key]?.total||0});
+  return result;
+}
+function weeks(series){
+  const buckets=new Map();
+  for(const d of series){const key=monday(d.date);buckets.set(key,(buckets.get(key)||0)+d.total)}
+  return [...buckets].map(([date,total])=>({date,total}));
+}
+function insights(days,today){
+  const recorded=Object.entries(days).filter(([date])=>date<=today).sort(([a],[b])=>a.localeCompare(b));
+  const all=recorded.map(([date,d])=>({date,total:d.total}));
+  const peak=items=>items.reduce((best,d)=>d.total>best.total?d:best,{date:null,total:0});
+  const sum=(start,end)=>recorded.reduce((n,[date,d])=>n+(date>=start&&date<=end?d.total:0),0);
+  const start=monday(today),elapsed=(+utc(today)-utc(start))/DAY;
+  return {peakDay:peak(all),peakWeek:peak(weeks(all)),thisWeek:sum(start,today),
+    previousWeek:sum(offset(start,-7),offset(start,-7+elapsed)),average:sum(offset(today,-6),today)/7};
+}
+function chartNode(tag,attrs={},text){
+  const node=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  for(const [key,value] of Object.entries(attrs))node.setAttribute(key,value);
+  if(text!==undefined)node.textContent=text;
+  return node;
+}
+function drawChart(id,series,bar=false){
+  const container=$(id);container.replaceChildren();
+  if(!series.length){container.textContent='No recorded usage in this year.';return}
+  const width=Math.max(720,bar?series.length*24:720),height=230,left=62,right=18,top=20,bottom=40;
+  const w=width-left-right,h=height-top-bottom,max=Math.max(1,...series.map(d=>Math.max(d.total,d.average||0)));
+  const svg=chartNode('svg',{viewBox:`0 0 ${width} ${height}`,class:'chart',role:'img','aria-label':bar?'Token totals by week':'Daily tokens and seven-day average'});
+  if(bar)svg.style.minWidth=width+'px';
+  const y=n=>top+h-h*n/max;
+  for(let i=0;i<=4;i++){const n=max*i/4;svg.append(chartNode('line',{x1:left,x2:width-right,y1:y(n),y2:y(n),class:'guide'}),chartNode('text',{x:left-8,y:y(n)+4,'text-anchor':'end'},short(n)))}
+  if(bar){
+    series.forEach((d,i)=>{const step=w/series.length,rect=chartNode('rect',{x:left+i*step+2,y:y(d.total),width:Math.max(1,step-5),height:Math.max(1,h*d.total/max),rx:2,class:'week',tabindex:0,'aria-label':`Week of ${d.date}: ${fmt(d.total)} tokens`});rect.append(chartNode('title',{},`Week of ${d.date}: ${fmt(d.total)} tokens`));svg.append(rect)})
+  }else{
+    const x=i=>left+i*w/Math.max(1,series.length-1),points=series.map((d,i)=>`${x(i)},${y(d.total)}`).join(' ');
+    svg.append(chartNode('polygon',{points:`${left},${y(0)} ${points} ${x(series.length-1)},${y(0)}`,class:'area'}),chartNode('polyline',{points,class:'trend'}));
+    svg.append(chartNode('polyline',{points:series.map((d,i)=>`${x(i)},${y(d.average)}`).join(' '),class:'average'}));
+    series.forEach((d,i)=>{const dot=chartNode('circle',{cx:x(i),cy:y(d.total),r:5,tabindex:0,'aria-label':`${d.date}: ${fmt(d.total)} tokens; 7-day average ${fmt(Math.round(d.average))}`});dot.append(chartNode('title',{},`${d.date}: ${fmt(d.total)} tokens · 7-day average ${fmt(Math.round(d.average))}`));svg.append(dot)})
+  }
+  const indices=[...new Set([0,Math.floor((series.length-1)/2),series.length-1])];
+  for(const i of indices){const x=bar?left+(i+.5)*w/series.length:left+i*w/Math.max(1,series.length-1);svg.append(chartNode('text',{x,y:height-12,'text-anchor':i===0?'start':i===series.length-1?'end':'middle'},series[i].date.slice(5)))}
+  container.append(svg);
+}
+function renderInsights(){
+  const s=insights(data.days,data.today);
+  stat('peakDay',s.peakDay.total);$('peakDate').textContent=s.peakDay.date||'No usage yet';
+  stat('peakWeek',s.peakWeek.total);$('peakWeekDate').textContent=s.peakWeek.date?'Week of '+s.peakWeek.date+' · Mon–Sun':'No usage yet';
+  stat('thisWeek',s.thisWeek);$('weekChange').textContent=s.previousWeek?`${s.thisWeek>=s.previousWeek?'+':''}${Math.round((s.thisWeek/s.previousWeek-1)*100)}% vs same weekdays last week`:'No usage in the same weekdays last week';
+  stat('dailyAverage',Math.round(s.average));
+}
+function renderYear(){
+  const year=$('year').value,end=year===data.today.slice(0,4)?data.today:year+'-12-31',start=year+'-01-01';
+  const days=Object.entries(data.days).filter(([d])=>d>=start&&d<=end),max=Math.max(1,...days.map(([,d])=>d.total));
+  $('yearTotal').textContent=fmt(days.reduce((n,[,d])=>n+d.total,0))+' tokens · '+start+' through '+end;
+  $('rangeStart').textContent=start;$('rangeEnd').textContent=end+(end===data.today?' · Today':'');
+  $('detail').textContent='Select a day to inspect its usage.';$('grid').replaceChildren();
+  for(let i=0;i<utc(start).getUTCDay();i++)$('grid').append(document.createElement('span'));
+  for(const item of dailySeries(data.days,start,end)){
+    const key=item.date,d=data.days[key]||{total:0,input:0,output:0,subagent:0},b=document.createElement('button');
+    b.className='day';b.dataset.level=d.total?Math.max(1,Math.ceil(Math.sqrt(d.total/max)*4)):0;
+    b.title=key+' · '+fmt(d.total)+' tokens';b.setAttribute('aria-label',b.title);
+    if(key===data.today)b.setAttribute('aria-current','date');
+    b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');$('detail').textContent=key+' · '+fmt(d.total)+' total · '+fmt(d.subagent)+' subagent tokens'};
+    $('grid').append(b);
+  }
+  $('ledger').replaceChildren();
+  for(const [day,d] of days.sort((a,b)=>b[0].localeCompare(a[0]))){const tr=document.createElement('tr');for(const value of [day,fmt(d.input),fmt(d.output),fmt(d.subagent),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('ledger').append(tr)}
+  const first=days.length?days[days.length-1][0]:null;
+  const weekly=first?weeks(dailySeries(data.days,first,end)):[];
+  $('weeklySubtitle').textContent='Mon–Sun · selected-year days only'+(end===data.today?' · current week partial':'');
+  drawChart('weeklyChart',weekly,true);$('weeklyLedger').replaceChildren();
+  for(const d of [...weekly].reverse()){const tr=document.createElement('tr');for(const value of [d.date,fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('weeklyLedger').append(tr)}
+  const trendStart=first?[first,offset(end,-89)].sort().pop():end;
+  const trend=first?dailySeries(data.days,trendStart,end).map(d=>({...d,average:dailySeries(data.days,offset(d.date,-6),d.date).reduce((n,x)=>n+x.total,0)/7})):[];
+  $('dailySubtitle').textContent=first?trendStart+' through '+end:'Selected year';drawChart('dailyChart',trend);
+}
+async function load(){const r=await fetch('/api/usage');if(!r.ok)throw Error('Could not load usage');data=await r.json();stat('total',data.totals.total);stat('today',data.days[data.today]?.total||0);stat('sub',data.totals.subagent);stat('cache',data.totals.cached);$('tz').textContent=data.timezone;$('cacheRate').textContent=(data.totals.input?Math.round(data.totals.cached/data.totals.input*100):0)+'% of input came from cache';breakdown('providers',data.providers);breakdown('models',data.models);$('sessions').textContent=fmt(data.sessions)+' sessions · '+fmt(data.totals.responses)+' responses';const previous=$('year').value;$('year').replaceChildren();[...new Set([data.today.slice(0,4),...Object.keys(data.days).filter(d=>d<=data.today).map(d=>d.slice(0,4))])].sort().reverse().forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;$('year').append(o)});if([...$('year').options].some(o=>o.value===previous))$('year').value=previous;renderYear();renderInsights();$('coverage').replaceChildren();data.sources.forEach(s=>{const p=document.createElement('p');p.textContent=s.provider+' · '+(s.found?fmt(s.files)+' history files':'Source not found')+(s.errors?' · '+s.errors+' unreadable files':'');$('coverage').append(p)});$('status').textContent='Loaded '+new Date().toLocaleTimeString()+'. Sync to pick up new activity.'}
 $('year').onchange=renderYear;$('refresh').onclick=async()=>{const b=$('refresh');b.disabled=true;$('status').textContent='Scanning local histories…';try{const r=await fetch('/api/sync',{method:'POST'});if(!r.ok)throw Error('Sync failed');await load()}catch(e){$('status').textContent=e.message}finally{b.disabled=false}};load().catch(e=>{$('status').textContent=e.message;$('status').classList.add('error')});
 </script></body></html>

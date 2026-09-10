@@ -10,7 +10,7 @@ python3 app.py
 
 Open http://127.0.0.1:8765. Python 3.9+ with timezone data is required. The first import scans all histories and can take a minute or more; later syncs parse only changed files. Click **Sync usage** for new activity. Use `--port 8766` to change the port or `--sync` to import and print a JSON summary without starting a server.
 
-The dashboard includes a yearly contribution grid, daily totals, input/output breakdown, cache reads, subagent totals, client/model breakdowns, and source coverage. Click a day for its exact counts. Hover over abbreviated numbers for exact values.
+The dashboard includes a yearly contribution grid, daily totals, input/output breakdown, cache reads, subagent totals, client/model breakdowns, and source coverage. The current-year grid ends at today. Additional summaries show your largest day and week, current-week usage against the same weekdays last week, and a seven-calendar-day average. Weekly bars include an expandable table of exact totals; the daily pace chart shows up to 90 days and a seven-day average. Weeks start Monday; weekly charts count only the selected year, while the largest-week summary spans all retained history. Click a day for its exact counts. Hover over abbreviated numbers for exact values.
 
 ## Sources and accounts
 
@@ -35,6 +35,9 @@ The server binds to loopback. Keep it local; it has no authentication. `data/`, 
 
 ```sh
 python3 -m unittest -v
+node test_dashboard.cjs
 ```
+
+Node is only needed for the optional dashboard tests, not to run the app.
 
 Tests cover repeated and copied histories, streaming updates, subagents, cache accounting, cumulative legacy counters, incomplete writes, and timezone boundaries.
