@@ -45,10 +45,10 @@ assert.match(fs.readFileSync('index.html','utf8'),/<details class="panel" id="da
 evaluate("data.days['2026-09-09']={total:10,subagent:0,breakdown:{main:{alpha:10},subagent:{}}};renderDay('2026-09-09')");
 slices=elements.get('dayPie').children[0].children.filter(n=>n.attrs.class==='pie-slice');
 assert.equal(slices.length,1);assert.equal(slices[0].tag,'circle');
-assert.equal(elements.get('dayPie').children[0].style.width,'110px');
-assert.match(elements.get('dayPieLegend').children[0].textContent,/minimum size for readability/);
+assert.equal(parseFloat(elements.get('dayPie').children[0].style.width),110+110*10/140);
+assert.match(elements.get('dayPieLegend').children[0].textContent,/scales linearly/);
 evaluate("data.days['2025-01-01']={total:280};renderDay('2026-09-08')");
-assert.equal(elements.get('dayPie').children[0].style.width,'110px');
+assert.equal(elements.get('dayPie').children[0].style.width,'165px');
 evaluate("delete data.days['2025-01-01']");
 evaluate("delete data.days['2026-09-09']");
 const stacks=plain("stackedWeeks(data.days,'2026-09-07','2026-09-10')");
