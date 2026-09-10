@@ -51,6 +51,17 @@ class UsageTests(unittest.TestCase):
         self.assertEqual(s['totals']['total'],150)
         self.assertEqual(s['totals']['subagent'],50)
 
+    def test_daily_role_and_model_breakdown_reconciles(self):
+        rows=[]
+        for key,model,sub,tokens in [('a','alpha',False,10),('b','beta',False,20),('c','alpha',True,30)]:
+            rows.append({'type':'assistant','timestamp':'2026-09-10T01:00:00Z','sessionId':'s','isSidechain':sub,'message':{'id':key,'model':model,'usage':{'input_tokens':tokens}}})
+        self.write('a.jsonl',rows)
+        sync(self.db,self.config('Claude Code'))
+        day=summary(self.db,self.config('Claude Code'))['days']['2026-09-09']
+        self.assertEqual(day['breakdown'],{'main':{'alpha':10,'beta':20},'subagent':{'alpha':30}})
+        self.assertEqual(sum(sum(group.values()) for group in day['breakdown'].values()),day['total'])
+        self.assertEqual(sum(day['breakdown']['subagent'].values()),day['subagent'])
+
     def test_legacy_cumulative_deltas(self):
         def row(n,t):return {'type':'event_msg','timestamp':t,'payload':{'type':'token_count','info':{'total_token_usage':{'input_tokens':n,'output_tokens':0}}}}
         a=row(100,'2026-09-09T12:00:00Z');b=row(140,'2026-09-10T12:00:00Z')

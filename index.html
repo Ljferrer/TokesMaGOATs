@@ -4,13 +4,15 @@
 :root{color-scheme:dark;--bg:#101411;--panel:#171d18;--line:#303a31;--text:#e7eadc;--muted:#9da995;--green:#b7ee82}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px 'Helvetica Neue',sans-serif}main{max-width:1200px;margin:auto;padding:42px 32px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:24px}.brand{font:700 20px Georgia,serif}.brand span{color:var(--green)}button,select{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:10px 14px;border-radius:6px;cursor:pointer}button:hover{border-color:var(--green)}button:disabled{opacity:.5}small,.muted{color:var(--muted)}.eyebrow{letter-spacing:2px;font:11px monospace;color:var(--green);margin-top:46px}h1{font:normal 48px Georgia,serif;margin:12px 0}p{line-height:1.6}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:32px 0;border-radius:8px;overflow:hidden}.stat{background:var(--panel);padding:24px}.stat strong{display:block;font:32px monospace;margin:12px 0}.stat small{font-size:12px}.panel{border:1px solid var(--line);border-radius:8px;padding:24px;margin-bottom:24px}.panelhead{display:flex;align-items:center;justify-content:space-between;gap:16px}h2{font-size:16px;font-weight:500;margin:0 0 18px}.gridwrap{overflow-x:auto;padding:20px 0 8px}.heatmap{display:grid;grid-template-rows:repeat(7,13px);grid-auto-flow:column;grid-auto-columns:13px;gap:5px;width:max-content}.day{border-radius:3px;background:#242d25;border:1px solid #ffffff06;padding:0;width:13px;height:13px}.day[data-level="1"]{background:#345237}.day[data-level="2"]{background:#54804a}.day[data-level="3"]{background:#80b75e}.day[data-level="4"]{background:#b7ee82}.day.selected{outline:2px solid white;outline-offset:1px}.legend{display:flex;gap:6px;justify-content:flex-end;align-items:center;margin-top:16px;font-size:11px;color:var(--muted)}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.row{display:flex;justify-content:space-between;gap:20px;margin:18px 0 8px}.bar{height:5px;background:#273128;border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--green)}table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th{color:var(--muted);font-weight:400}td,th{padding:13px 0;border-bottom:1px solid var(--line)}td:not(:first-child),th:not(:first-child){text-align:right;font-family:monospace}.status{font:12px monospace;color:var(--muted);margin-top:20px}footer{color:var(--muted);font-size:12px;padding:10px 0 30px}.detail{min-height:23px;margin-top:18px;color:var(--green);font-family:monospace}.error{color:#ffb5a4}@media(max-width:700px){main{padding:24px 16px}h1{font-size:36px}.stats{grid-template-columns:1fr 1fr}.columns{grid-template-columns:1fr;gap:0}.stat{padding:18px}.stat strong{font-size:25px}.panel{padding:18px}}
 
 .heatmap{margin-left:auto}.chart-scroll{overflow-x:auto}.chart{width:100%;min-width:500px;display:block}.chart text{fill:var(--muted);font:11px monospace}.chart .guide{stroke:var(--line);stroke-dasharray:3 5}.chart .area{fill:#b7ee8214}.chart .trend{fill:none;stroke:var(--green);stroke-width:2}.chart .average{fill:none;stroke:#91b5eb;stroke-width:2}.chart circle{fill:var(--green);opacity:0}.chart circle:hover,.chart circle:focus{opacity:1}.chart rect.week{fill:#80b75e}.chart rect.week:hover,.chart rect.week:focus{fill:var(--green)}.chart-key{display:flex;gap:20px;color:var(--muted);font-size:12px;margin:12px 0}.chart-key span::before{content:'●';color:var(--green);margin-right:6px}.chart-key span:last-child::before{color:#91b5eb}details{margin-top:18px}summary{cursor:pointer;color:var(--muted)}.range-labels{display:flex;justify-content:space-between;color:var(--muted);font:11px monospace;margin-top:12px}.stat small{display:block;line-height:1.5}.empty-chart{color:var(--muted);padding:50px 0;text-align:center}
+
+.stack-legend{display:flex;flex-wrap:wrap;gap:16px 32px;margin:8px 0 24px}.legend-group{flex:1;min-width:220px}.legend-group strong{display:block;font-size:12px;margin-bottom:10px}.legend-models{display:flex;flex-wrap:wrap;gap:8px 16px}.legend-item{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}.swatch{width:13px;height:13px;display:inline-block;border-radius:2px}.swatch.hatched{background-image:repeating-linear-gradient(135deg,transparent 0 4px,#10141199 4px 6px)}.chart .segment:hover,.chart .segment:focus{stroke:var(--text);stroke-width:1.5;outline:none}
 </style></head><body><main>
 <header><div class="brand">Tokes<span>MaGoats</span> <small> / token ledger</small></div><button id="refresh">↻ Sync usage</button></header>
 <div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Parent sessions and subagents, together.</p>
 <div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
 <div class="stats"><div class="stat">Largest day · all time<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · all time<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">This week<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
 <section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Select a day to inspect its usage.</div></section>
-<section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div class="chart-scroll" id="weeklyChart"></div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Tokens</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
+<section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div id="weeklyLegend" class="stack-legend"></div><div class="chart-scroll" id="weeklyChart"></div><div id="weeklyDetail" class="detail" role="status">Hover or focus a segment for exact usage.</div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Main chat</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
 <section class="panel"><div class="panelhead"><h2>Daily pace</h2><small id="dailySubtitle"></small></div><div class="chart-key"><span>Daily tokens</span><span>7-day average</span></div><div class="chart-scroll" id="dailyChart"></div></section>
 <div class="columns"><section class="panel"><h2>By client</h2><div id="providers"></div><p class="muted" id="sessions"></p></section><section class="panel"><h2>Models</h2><div id="models"></div></section></div>
 <section class="panel"><div class="panelhead"><h2>Daily ledger</h2><small>Selected year · newest first</small></div><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Input</th><th>Output</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
@@ -44,6 +46,36 @@ function insights(days,today){
   return {peakDay:peak(all),peakWeek:peak(weeks(all)),thisWeek:sum(start,today),
     previousWeek:sum(offset(start,-7),offset(start,-7+elapsed)),average:sum(offset(today,-6),today)/7};
 }
+function stackedWeeks(days,start,end){
+  const result=new Map();
+  for(const d of dailySeries(days,start,end)){
+    const key=monday(d.date);
+    if(!result.has(key))result.set(key,{date:key,total:0,main:0,subagent:0,segments:new Map()});
+    const week=result.get(key);week.total+=d.total;
+    const breakdown=days[d.date]?.breakdown||{};
+    for(const role of ['main','subagent'])for(const [model,tokens] of Object.entries(breakdown[role]||{})){
+      const id=JSON.stringify([role,model]);
+      if(!week.segments.has(id))week.segments.set(id,{role,model,total:0});
+      week.segments.get(id).total+=tokens;week[role]+=tokens;
+    }
+  }
+  return [...result.values()].map(w=>({...w,segments:[...w.segments.values()].filter(s=>s.total>0).sort((a,b)=>a.role.localeCompare(b.role)||a.model.localeCompare(b.model))}));
+}
+function modelColors(){
+  const names=[...new Set(Object.values(data.days).flatMap(d=>Object.values(d.breakdown||{}).flatMap(group=>Object.keys(group))))].sort();
+  return new Map(names.map((model,i)=>[model,`hsl(${(95+i*137.508)%360} 52% 62%)`]));
+}
+function renderStackLegend(series,colors){
+  $('weeklyLegend').replaceChildren();
+  for(const role of ['main','subagent']){
+    const group=document.createElement('div');group.className='legend-group';
+    const heading=document.createElement('strong');heading.textContent=role==='main'?'Main chat · solid · bottom':'Subagents · striped · top';group.append(heading);
+    const models=document.createElement('div');models.className='legend-models';
+    const names=[...new Set(series.flatMap(w=>w.segments.filter(s=>s.role===role).map(s=>s.model)))].sort();
+    for(const model of names){const item=document.createElement('span');item.className='legend-item';const swatch=document.createElement('i');swatch.className='swatch'+(role==='subagent'?' hatched':'');swatch.style.backgroundColor=colors.get(model);const label=document.createElement('span');label.textContent=model;item.append(swatch,label);models.append(item)}
+    if(!names.length)models.textContent='No usage';group.append(models);$('weeklyLegend').append(group);
+  }
+}
 function chartNode(tag,attrs={},text){
   const node=document.createElementNS('http://www.w3.org/2000/svg',tag);
   for(const [key,value] of Object.entries(attrs))node.setAttribute(key,value);
@@ -60,7 +92,18 @@ function drawChart(id,series,bar=false){
   const y=n=>top+h-h*n/max;
   for(let i=0;i<=4;i++){const n=max*i/4;svg.append(chartNode('line',{x1:left,x2:width-right,y1:y(n),y2:y(n),class:'guide'}),chartNode('text',{x:left-8,y:y(n)+4,'text-anchor':'end'},short(n)))}
   if(bar){
-    series.forEach((d,i)=>{const step=w/series.length,rect=chartNode('rect',{x:left+i*step+2,y:y(d.total),width:Math.max(1,step-5),height:Math.max(1,h*d.total/max),rx:2,class:'week',tabindex:0,'aria-label':`Week of ${d.date}: ${fmt(d.total)} tokens`});rect.append(chartNode('title',{},`Week of ${d.date}: ${fmt(d.total)} tokens`));svg.append(rect)})
+    const colors=modelColors(),defs=chartNode('defs'),patterns=new Map();
+    [...colors].forEach(([model,color],i)=>{const id='subagent-model-'+i,pattern=chartNode('pattern',{id,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'});pattern.append(chartNode('rect',{width:6,height:6,fill:color}),chartNode('line',{x1:0,x2:0,y1:0,y2:6,stroke:'#101411','stroke-opacity':.6,'stroke-width':2}));defs.append(pattern);patterns.set(model,id)});svg.append(defs);
+    renderStackLegend(series,colors);
+    series.forEach((d,i)=>{
+      const step=w/series.length;let base=0;
+      for(const segment of d.segments){
+        const label=`Week of ${d.date} · ${segment.role==='main'?'Main chat':'Subagent'} · ${segment.model} · ${fmt(segment.total)} tokens (${(segment.total/d.total*100).toFixed(1)}% of week)`;
+        const rect=chartNode('rect',{x:left+i*step+2,y:y(base+segment.total),width:Math.max(1,step-5),height:h*segment.total/max,class:'segment',fill:segment.role==='main'?colors.get(segment.model):`url(#${patterns.get(segment.model)})`,tabindex:0,'aria-label':label});
+        rect.append(chartNode('title',{},label));rect.onmouseenter=rect.onfocus=()=>{$('weeklyDetail').textContent=label};svg.append(rect);base+=segment.total;
+      }
+      if(d.main&&d.subagent)svg.append(chartNode('line',{x1:left+i*step+2,x2:left+(i+1)*step-3,y1:y(d.main),y2:y(d.main),stroke:'#101411','stroke-width':2,'pointer-events':'none'}));
+    });
   }else{
     const x=i=>left+i*w/Math.max(1,series.length-1),points=series.map((d,i)=>`${x(i)},${y(d.total)}`).join(' ');
     svg.append(chartNode('polygon',{points:`${left},${y(0)} ${points} ${x(series.length-1)},${y(0)}`,class:'area'}),chartNode('polyline',{points,class:'trend'}));
@@ -96,10 +139,11 @@ function renderYear(){
   $('ledger').replaceChildren();
   for(const [day,d] of days.sort((a,b)=>b[0].localeCompare(a[0]))){const tr=document.createElement('tr');for(const value of [day,fmt(d.input),fmt(d.output),fmt(d.subagent),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('ledger').append(tr)}
   const first=days.length?days[days.length-1][0]:null;
-  const weekly=first?weeks(dailySeries(data.days,first,end)):[];
+  const weekly=first?stackedWeeks(data.days,first,end):[];
+  $('weeklyLegend').replaceChildren();$('weeklyDetail').textContent='Hover or focus a segment for exact usage.';
   $('weeklySubtitle').textContent='Mon–Sun · selected-year days only'+(end===data.today?' · current week partial':'');
   drawChart('weeklyChart',weekly,true);$('weeklyLedger').replaceChildren();
-  for(const d of [...weekly].reverse()){const tr=document.createElement('tr');for(const value of [d.date,fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('weeklyLedger').append(tr)}
+  for(const d of [...weekly].reverse()){const tr=document.createElement('tr');for(const value of [d.date,fmt(d.main),fmt(d.subagent),fmt(d.total)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('weeklyLedger').append(tr)}
   const trendStart=first?[first,offset(end,-89)].sort().pop():end;
   const trend=first?dailySeries(data.days,trendStart,end).map(d=>({...d,average:dailySeries(data.days,offset(d.date,-6),d.date).reduce((n,x)=>n+x.total,0)/7})):[];
   $('dailySubtitle').textContent=first?trendStart+' through '+end:'Selected year';drawChart('dailyChart',trend);

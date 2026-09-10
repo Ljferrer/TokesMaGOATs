@@ -146,7 +146,9 @@ def summary(db_path, config):
             except (ValueError, AttributeError):
                 continue
             n = inp + out
-            d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, responses=0))
+            d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, responses=0, breakdown={"main": {}, "subagent": {}}))
+            role = d['breakdown']['subagent' if sub else 'main']
+            role[model] = role.get(model, 0) + n
             for target in (d, total):
                 for key, value in [('total', n), ('input', inp), ('output', out), ('cached', cache), ('subagent', n if sub else 0), ('responses', 1)]:
                     target[key] += value
