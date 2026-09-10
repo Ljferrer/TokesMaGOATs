@@ -7,13 +7,13 @@
 
 .stack-legend{display:flex;flex-wrap:wrap;gap:16px 32px;margin:8px 0 24px}.legend-group{flex:1;min-width:220px}.legend-group strong{display:block;font-size:12px;margin-bottom:10px}.legend-models{display:flex;flex-wrap:wrap;gap:8px 16px}.legend-item{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}.swatch{width:13px;height:13px;display:inline-block;border-radius:2px}.swatch.hatched{background-image:repeating-linear-gradient(135deg,transparent 0 4px,#10141199 4px 6px)}.chart .segment:hover,.chart .segment:focus{stroke:var(--text);stroke-width:1.5;outline:none}
 
-.day-breakdown{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;align-items:center;border-top:1px solid var(--line);margin-top:18px;padding-top:20px}.day-breakdown[hidden]{display:none}.day-pie{display:block;width:220px;height:220px}.pie-slice:hover,.pie-slice:focus{stroke:var(--text);stroke-width:2;outline:none}.pie-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;font-size:12px}.pie-item .amount{margin-left:auto;color:var(--muted);font-family:monospace}#dailyLedger>summary{color:var(--text);font-size:16px}#dailyLedger>summary small{font-size:12px}#dailyLedger[open]>summary{margin-bottom:18px}@media(max-width:550px){.day-breakdown{grid-template-columns:1fr}.day-pie{margin:auto}}
+.day-breakdown{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;align-items:center;border-top:1px solid var(--line);margin-top:18px;padding-top:20px}.day-breakdown[hidden]{display:none}#dayPie{min-height:220px;display:flex;align-items:center;justify-content:center}.day-pie{display:block;width:220px;height:220px}.pie-slice:hover,.pie-slice:focus{stroke:var(--text);stroke-width:2;outline:none}.pie-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;font-size:12px}.pie-item .amount{margin-left:auto;color:var(--muted);font-family:monospace}#dailyLedger>summary{color:var(--text);font-size:16px}#dailyLedger>summary small{font-size:12px}#dailyLedger[open]>summary{margin-bottom:18px}@media(max-width:550px){.day-breakdown{grid-template-columns:1fr}.day-pie{margin:auto}}
 </style></head><body><main>
 <header><div class="brand">Tokes<span>MaGoats</span> <small> / token ledger</small></div><button id="refresh">↻ Sync usage</button></header>
 <div class="eyebrow">LOCAL RECORDS. EVERY AGENT.</div><h1>A little perspective<br>on a lot of tokens.</h1><p class="muted">Your Codex and Claude Code usage, day by day. Parent sessions and subagents, together.</p>
 <div class="stats"><div class="stat">All-time tokens<strong id="total">—</strong><small>Input + output, including cached input</small></div><div class="stat">Today<strong id="today">—</strong><small id="tz">—</small></div><div class="stat">Subagent tokens<strong id="sub">—</strong><small>Included in the total</small></div><div class="stat">Cache reads<strong id="cache">—</strong><small id="cacheRate">Included in input tokens</small></div></div>
 <div class="stats"><div class="stat">Largest day · all time<strong id="peakDay">—</strong><small id="peakDate"></small></div><div class="stat">Largest week · all time<strong id="peakWeek">—</strong><small id="peakWeekDate"></small></div><div class="stat">This week<strong id="thisWeek">—</strong><small id="weekChange"></small></div><div class="stat">Daily average · last 7 days<strong id="dailyAverage">—</strong><small>Calendar days, including today and zero-usage days</small></div></div>
-<section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Hover or click a day to inspect its usage.</div><div id="dayBreakdown" class="day-breakdown" hidden><div id="dayPie"></div><div id="dayPieLegend"></div></div></section>
+<section class="panel"><div class="panelhead"><h2>Daily activity</h2><select id="year" aria-label="Activity year"></select></div><small id="yearTotal"></small><div class="gridwrap"><div id="grid" class="heatmap" aria-label="Daily token activity"></div><div class="range-labels"><span id="rangeStart"></span><span id="rangeEnd"></span></div></div><div class="legend">Less <i class="day"></i><i class="day" data-level="1"></i><i class="day" data-level="2"></i><i class="day" data-level="3"></i><i class="day" data-level="4"></i> More</div><div id="detail" class="detail">Click a day to inspect its usage.</div><div id="dayBreakdown" class="day-breakdown" hidden><div id="dayPie"></div><div id="dayPieLegend"></div></div></section>
 <section class="panel"><div class="panelhead"><h2>Weekly usage</h2><small id="weeklySubtitle"></small></div><div id="weeklyLegend" class="stack-legend"></div><div class="chart-scroll" id="weeklyChart"></div><div id="weeklyDetail" class="detail" role="status">Hover or focus a segment for exact usage.</div><details><summary>Exact weekly totals</summary><table><thead><tr><th>Week starting Monday</th><th>Main chat</th><th>Subagents</th><th>Total</th></tr></thead><tbody id="weeklyLedger"></tbody></table></details></section>
 <section class="panel"><div class="panelhead"><h2>Daily pace</h2><small id="dailySubtitle"></small></div><div class="chart-key"><span>Daily tokens</span><span>7-day average</span></div><div class="chart-scroll" id="dailyChart"></div></section>
 <div class="columns"><section class="panel"><h2>By client</h2><div id="providers"></div><p class="muted" id="sessions"></p></section><section class="panel"><h2>Models</h2><div id="models"></div></section></div>
@@ -123,6 +123,9 @@ function renderDay(key){
   if(!day.total){$('dayPie').textContent='No recorded tokens for this day.';return}
   const segments=stackedWeeks(data.days,key,key)[0].segments,colors=modelColors();
   const svg=chartNode('svg',{viewBox:'0 0 220 220',class:'day-pie',role:'img','aria-label':`Token breakdown for ${key}: main chat and subagents by model`}),defs=chartNode('defs');
+  const largest=insights(data.days,data.today).peakDay.total,ratio=largest?Math.min(1,day.total/largest):0;
+  svg.style.width=svg.style.height=(220*ratio)+'px';
+  const scale=document.createElement('p');scale.className='muted';scale.textContent='Diameter: '+(ratio*100).toFixed(1)+'% of your largest day ('+fmt(largest)+' tokens).';$('dayPieLegend').append(scale);
   svg.append(defs);let angle=-Math.PI/2;
   segments.forEach((segment,i)=>{
     const color=colors.get(segment.model),id='day-pattern-'+i;
@@ -152,14 +155,14 @@ function renderYear(){
   const days=Object.entries(data.days).filter(([d])=>d>=start&&d<=end),max=Math.max(1,...days.map(([,d])=>d.total));
   $('yearTotal').textContent=fmt(days.reduce((n,[,d])=>n+d.total,0))+' tokens · '+start+' through '+end;
   $('rangeStart').textContent=start;$('rangeEnd').textContent=end+(end===data.today?' · Today':'');
-  $('detail').textContent='Hover or click a day to inspect its usage.';$('dayBreakdown').hidden=true;$('grid').replaceChildren();
+  $('detail').textContent='Click a day to inspect its usage.';$('dayBreakdown').hidden=true;$('grid').replaceChildren();
   for(let i=0;i<utc(start).getUTCDay();i++)$('grid').append(document.createElement('span'));
   for(const item of dailySeries(data.days,start,end)){
     const key=item.date,d=data.days[key]||{total:0,input:0,output:0,subagent:0},b=document.createElement('button');
     b.className='day';b.dataset.level=d.total?Math.max(1,Math.ceil(Math.sqrt(d.total/max)*4)):0;
     b.title=key+' · '+fmt(d.total)+' tokens';b.setAttribute('aria-label',b.title);
     if(key===data.today)b.setAttribute('aria-current','date');
-    b.onmouseenter=b.onfocus=b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');renderDay(key)};
+    b.onclick=()=>{document.querySelectorAll('.selected').forEach(e=>e.classList.remove('selected'));b.classList.add('selected');renderDay(key)};
     $('grid').append(b);
   }
   $('ledger').replaceChildren();
