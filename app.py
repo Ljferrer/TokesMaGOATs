@@ -203,7 +203,7 @@ def main():
             else:
                 self.send(404, b'{}')
 
-    print(f'TokesMaGoats → http://127.0.0.1:{args.port}', flush=True)
+    print(f'TokesMaGOATs → http://127.0.0.1:{args.port}', flush=True)
     ThreadingHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
 
 

@@ -1,4 +1,4 @@
-# TokesMaGoats
+# TokesMaGOATs
 
 A lightweight, local token ledger for **Codex and Claude Code**, including subagents. Python's standard library, SQLite, and one HTML page. No dependencies, telemetry, API keys, or build step.
 
