@@ -26,7 +26,7 @@ Coverage is limited to retained local records. Deleted histories, other computer
 - Codex: use per-response `token_usage_record` entries and deduplicate by response ID across live, archived, forked, and copied histories. For older files without those records, use changes in cumulative `token_count` counters; repeated snapshots are ignored. Copied parent responses retain their parent classification when encountered in a child log. Legacy histories lack response IDs, so timestamp-and-counter deduplication and subagent attribution are best effort. Files with detailed records use those instead of cumulative snapshots, which can carry inherited context usage.
 - Claude Code: input includes ordinary input, cache creation, and cache reads. Repeated streaming messages are merged by message ID using the greatest reported counters. Nested subagents and sidechain messages are included.
 - Local calendar dates use the configured timezone (default `America/Los_Angeles`).
-- SQLite stores usage metadata only, never prompts, responses, tool content, or credentials. Session count represents distinct client/session IDs; Claude subagents often share their parent's session ID.
+- SQLite stores usage metadata and short task labels (saved titles/summaries or opening-request excerpts), not full transcripts, tool content, or credentials. Session count represents distinct client/session IDs; Claude subagents often share their parent's session ID.
 - Imports retain recorded events even if source files later disappear. To rebuild after changing parser behavior or source selection, stop the app, remove `data/usage.sqlite3`, and restart. This only removes the derived ledger, not the original histories.
 
 The server binds to loopback. Keep it local; it has no authentication. `data/`, databases, personal configuration, and environment files are ignored by git.
@@ -44,10 +44,14 @@ Tests cover repeated and copied histories, streaming updates, subagents, cache a
 
 **Roles are determined by recorded launch provenance, not model choice.** Codex child sessions launched during an explicit `$snipe` (or namespaced Snipe) invocation turn are Auditors. Claude agents attributed to `war-auditor`, through the assistant record or adjacent `.meta.json` agent type, are Auditors. Other subagents remain Task subagents even when they use Sol, Sonnet, or Opus. Codex's `codex-auto-review` belongs to Other. All four categories contribute to the overall total, without overlap.
 
-When audit provenance is missing from retained logs, a subagent remains a Task subagent; the app does not guess based on its model or mentions of auditing in ordinary conversation. Role metadata is stored separately from usage and existing histories are reclassified automatically on the first sync after this update. No prompt text is stored in the ledger.
+When audit provenance is missing from retained logs, a subagent remains a Task subagent; the app does not guess based on its model or mentions of auditing in ordinary conversation. Role metadata is stored separately from usage and existing histories are reclassified automatically on the first sync after this update. Work grouping may store a short opening-request excerpt as a task label.
 
 ## Estimated carbon footprint
 
 The dashboard includes daily and all-time **metric tons of operational electricity CO₂**, low/central/high sensitivity scenarios, model-specific fresh/cache/output energy assumptions, and one-way economy LAX–JFK passenger flight equivalents. This is an estimate from retained token records, not measured provider power or a full life-cycle assessment. Parameter sizes remain undisclosed; open-weight reference models provide clearly labeled compute proxies.
 
 See [CARBON_METHODOLOGY.md](CARBON_METHODOLOGY.md) for the research, primary sources, equations, per-model assignments, scope, and optional `config.json` overrides. Cache-heavy histories are especially sensitive to assumed cache energy. No usage or footprint report is uploaded with the source code.
+
+## Work grouping
+
+Project totals merge worktree folders and attach Codex child sessions to their parent task. Claude subagents share their parent session. Expand project or work-type bars to see task labels and exact totals for the selected year. Work types use local title keywords, not model calls; mixed-topic sessions get one approximate category, and missing labels remain unclassified. All classification runs locally and personal labels stay in the ignored database.

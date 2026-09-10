@@ -92,3 +92,8 @@ assert.ok(carbonTicks.some(n=>n.textContent==='0.100'));
 elements.get('carbonScenario').value='high';evaluate('renderCarbon()');assert.equal(elements.get('carbonTotal').textContent,'1 t');
 evaluate("renderDay('2026-09-08')");assert.match(elements.get('detail').textContent,/1 metric tons CO₂/);
 console.log('Dashboard checks passed: date cutoff, leap year, weekly boundaries, missing days, future exclusion, summaries, chart rendering, day selection, empty state.');
+evaluate("data.work=[{project:'Example',activity:'Implementation',title:'Build feature',basis:'Session title',days:{'2026-09-08':100,'2027-01-01':999}},{project:'Example',activity:'Implementation',title:'Build feature',basis:'Inherited parent task',days:{'2026-09-08':40}}]");
+assert.equal(evaluate("workGroups('project','2026-01-01','2026-09-10')[0].total"),140);
+assert.equal(evaluate("workGroups('project','2026-01-01','2026-09-10')[0].tasks.size"),1);
+evaluate("renderWork('2026-01-01','2026-09-10')");
+assert.equal(elements.get('workProjects').children[0].tag,'details');

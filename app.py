@@ -11,6 +11,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 from carbon import estimate as estimate_carbon
+from topics import contexts as topic_contexts
 
 BASE = Path(__file__).resolve().parent
 LOCK = threading.Lock()
@@ -23,6 +24,7 @@ def connect(path):
       id TEXT PRIMARY KEY, timestamp TEXT, provider TEXT, account TEXT,
       session TEXT, model TEXT, subagent INTEGER, input INTEGER,
       cached INTEGER, cache_write INTEGER, output INTEGER, reasoning INTEGER);
+    CREATE TABLE IF NOT EXISTS session_topics (provider TEXT, session TEXT, project TEXT, title TEXT, activity TEXT, basis TEXT, PRIMARY KEY(provider,session));
     CREATE TABLE IF NOT EXISTS event_roles (id TEXT PRIMARY KEY, role TEXT);
     CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, stamp TEXT);
     ''')
@@ -148,6 +150,8 @@ def records(path, provider, account, auditors=None):
 def sync(db_path, config):
     with LOCK, connect(db_path) as db:
         report = []
+        for (provider, session), topic in topic_contexts(config).items():
+            db.execute('INSERT OR REPLACE INTO session_topics VALUES (?,?,?,?,?,?)', (provider, session, topic['project'], topic['title'], topic['activity'], topic['basis']))
         auditors = codex_auditors(config)
         for session in auditors:
             db.execute("INSERT OR REPLACE INTO event_roles SELECT id, 'auditor' FROM events WHERE provider='Codex' AND session=?", (session,))
@@ -186,7 +190,9 @@ def summary(db_path, config):
     total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, auditor=0, other=0, responses=0)
     sessions = set()
     carbon_groups = {}
+    work = {}
     with connect(db_path) as db:
+        topic_lookup = {(p,s):dict(project=project,title=title,activity=activity,basis=basis) for p,s,project,title,activity,basis in db.execute('SELECT * FROM session_topics')}
         for row in db.execute('SELECT events.*, event_roles.role FROM events LEFT JOIN event_roles USING(id)'):
             _, timestamp, provider, account, session, model, sub, inp, cache, write, out, reasoning, recorded_role = row
             try:
@@ -197,6 +203,8 @@ def summary(db_path, config):
             for key, value in (('input', inp), ('cached', cache), ('output', out)):
                 usage[key] += value
             n = inp + out
+            task = work.setdefault((provider, session), dict(provider=provider,session=session,**topic_lookup.get((provider,session),dict(project='Unassigned',title='',activity='Unclassified work',basis='Missing metadata')),days={}))
+            task['days'][day] = task['days'].get(day,0) + n
             d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, auditor=0, other=0, responses=0, breakdown={"main": {}, "subagent": {}, "auditor": {}, "other": {}}))
             category = 'other' if provider == 'Codex' and model == 'codex-auto-review' else recorded_role or ('subagent' if sub else 'main')
             role = d['breakdown'][category]
@@ -210,6 +218,7 @@ def summary(db_path, config):
                 group[label] = group.get(label, 0) + n
             sessions.add((provider, session))
     return dict(days=days, totals=total, providers=providers, accounts=accounts, models=models,
+                work=list(work.values()),
                 carbon=estimate_carbon(carbon_groups, config.get('carbon')),
                 sessions=len(sessions), timezone=str(zone), today=dt.datetime.now(zone).date().isoformat())
 
