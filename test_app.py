@@ -40,6 +40,17 @@ class UsageTests(unittest.TestCase):
         s=summary(self.db,self.config('Codex'))
         self.assertEqual(s['totals']['total'],110)
         self.assertEqual(s['totals']['responses'],1)
+    def test_copied_parent_usage_is_not_subagent_usage(self):
+        meta={'type':'session_meta','payload':{'id':'child','source':{'subagent':{}}}}
+        parent={'type':'token_usage_record','timestamp':'2026-09-09T12:00:00Z','payload':{'response_id':'parent-response','thread_id':'parent','usage':{'input_tokens':100}}}
+        child={'type':'token_usage_record','timestamp':'2026-09-09T12:01:00Z','payload':{'response_id':'child-response','thread_id':'child','usage':{'input_tokens':50}}}
+        self.write('child.jsonl',[meta,parent,child])
+        self.write('parent.jsonl',[parent])
+        sync(self.db,self.config('Codex'))
+        s=summary(self.db,self.config('Codex'))
+        self.assertEqual(s['totals']['total'],150)
+        self.assertEqual(s['totals']['subagent'],50)
+
     def test_legacy_cumulative_deltas(self):
         def row(n,t):return {'type':'event_msg','timestamp':t,'payload':{'type':'token_count','info':{'total_token_usage':{'input_tokens':n,'output_tokens':0}}}}
         a=row(100,'2026-09-09T12:00:00Z');b=row(140,'2026-09-10T12:00:00Z')

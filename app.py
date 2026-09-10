@@ -4,7 +4,6 @@ import argparse
 import datetime as dt
 import hashlib
 import json
-import os
 from pathlib import Path
 import sqlite3
 import threading
@@ -43,16 +42,20 @@ def event(key, timestamp, provider, account, session, model, subagent, u):
             number(u, 'reasoning_output_tokens'))
 
 
-def records(path, provider, account):
-    rows = []
+def json_lines(path):
     with path.open(errors='replace') as stream:
         for line in stream:
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except (ValueError, TypeError):
                 continue  # A live writer may not have finished its final line.
+            if isinstance(row, dict):
+                yield row
+
+
+def records(path, provider, account):
     if provider == 'Claude Code':
-        for x in rows:
+        for x in json_lines(path):
             msg = x.get('message') or {}
             if x.get('type') != 'assistant' or not msg.get('usage'):
                 continue
@@ -63,6 +66,17 @@ def records(path, provider, account):
                         x.get('sessionId', path.stem), msg.get('model', 'unknown'),
                         x.get('isSidechain', False) or 'subagents' in path.parts, msg['usage'])
         return
+    # Keep only small accounting records; never retain transcript content.
+    rows = []
+    for x in json_lines(path):
+        kind, payload = x.get('type'), x.get('payload') or {}
+        if kind == 'session_meta':
+            x['payload'] = {k: payload.get(k) for k in ('id', 'source')}
+        elif kind == 'turn_context':
+            x['payload'] = {'model': payload.get('model', 'unknown')}
+        elif kind != 'token_usage_record' and payload.get('type') != 'token_count':
+            continue
+        rows.append(x)
     meta = next((x.get('payload', {}) for x in rows if x.get('type') == 'session_meta'), {})
     session = meta.get('id', path.stem)
     subagent = isinstance(meta.get('source'), dict) and 'subagent' in meta['source']
@@ -77,7 +91,8 @@ def records(path, provider, account):
             if x.get('type') != 'token_usage_record' or not p.get('response_id'):
                 continue
             yield event(p['response_id'], x['timestamp'], provider, account,
-                        p.get('thread_id', session), model, subagent, p.get('usage', {}))
+                        p.get('thread_id', session), model,
+                        subagent and p.get('thread_id', session) == session, p.get('usage', {}))
         elif p.get('type') == 'token_count' and p.get('info'):
             total = p['info'].get('total_token_usage') or {}
             if not total or total == previous:

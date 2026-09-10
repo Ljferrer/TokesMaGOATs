@@ -14,7 +14,7 @@ The dashboard includes a yearly contribution grid, daily totals, input/output br
 
 ## Sources and accounts
 
-Defaults scan `~/.codex/sessions`, `~/.codex/archived_sessions`, and `~/.claude/projects` recursively, including Claude's nested `subagents` directories and Codex subagent sessions. All accounts whose usage appears in these directories are combined. Local logs do not reliably identify the authenticated account, so the app does not invent account attribution.
+Defaults scan `~/.codex/sessions`, `~/.codex/archived_sessions`, and `~/.claude/projects` recursively, including Claude's nested `subagents` directories and Codex subagent sessions. Histories are streamed; transcript content is not retained in memory between records. All accounts whose usage appears in these directories are combined. Local logs do not reliably identify the authenticated account, so the app does not invent account attribution.
 
 For custom profile directories, copy `config.example.json` to `config.json`, add sources using provider `Codex` or `Claude Code`, and optionally give each an `account` label. Set `timezone` to your IANA timezone. Restart after config changes. Config is ignored by git.
 
@@ -23,7 +23,7 @@ Coverage is limited to retained local records. Deleted histories, other computer
 ## Accounting
 
 - **Total = input + output.** Cached input is included once. Reasoning is part of output, not added again.
-- Codex: use per-response `token_usage_record` entries and deduplicate by response ID across live, archived, forked, and copied histories. For older files without those records, use changes in cumulative `token_count` counters; repeated snapshots are ignored. Legacy histories lack response IDs, so timestamp-and-counter deduplication is best effort. Files with detailed records use those instead of cumulative snapshots, which can carry inherited context usage.
+- Codex: use per-response `token_usage_record` entries and deduplicate by response ID across live, archived, forked, and copied histories. For older files without those records, use changes in cumulative `token_count` counters; repeated snapshots are ignored. Copied parent responses retain their parent classification when encountered in a child log. Legacy histories lack response IDs, so timestamp-and-counter deduplication and subagent attribution are best effort. Files with detailed records use those instead of cumulative snapshots, which can carry inherited context usage.
 - Claude Code: input includes ordinary input, cache creation, and cache reads. Repeated streaming messages are merged by message ID using the greatest reported counters. Nested subagents and sidechain messages are included.
 - Local calendar dates use the configured timezone (default `America/Los_Angeles`).
 - SQLite stores usage metadata only, never prompts, responses, tool content, or credentials. Session count represents distinct client/session IDs; Claude subagents often share their parent's session ID.
