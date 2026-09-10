@@ -13,7 +13,8 @@ from costs import estimate as estimate_cost
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 from carbon import estimate as estimate_carbon
-from topics import contexts as topic_contexts
+from topics import contexts as topic_contexts, project_name
+from snipe_usage import results as snipe_results, DEFAULT_PATTERNS, DEFAULT_ROOTS
 
 BASE = Path(__file__).resolve().parent
 LOCK = threading.Lock()
@@ -187,6 +188,25 @@ def sync(db_path, config):
                 except (OSError, ValueError, TypeError, KeyError):
                     errors += 1
             report.append(dict(provider=source['provider'], found=root.exists(), files=count, changed=changed, errors=errors))
+        # Native histories supersede saved aggregates even after temp results vanish.
+        for (session,) in db.execute("SELECT DISTINCT a.session FROM events a JOIN events b ON a.session=b.session AND b.provider='Codex' WHERE a.id LIKE 'Codex:snipe:%' AND b.id NOT LIKE 'Codex:snipe:%'").fetchall():
+            db.execute("DELETE FROM event_roles WHERE id IN (SELECT id FROM events WHERE session=? AND id LIKE 'Codex:snipe:%')",(session,))
+            db.execute("DELETE FROM events WHERE session=? AND id LIKE 'Codex:snipe:%'",(session,))
+            db.execute("INSERT OR REPLACE INTO event_roles SELECT id, 'auditor' FROM events WHERE provider='Codex' AND session=?",(session,))
+        recovered=set();audit_coverage={}
+        for path,session,turn,timestamp,model,repository,usage in snipe_results(config.get('snipe_results', []), config.get('snipe_search_roots', []), audit_coverage, [source['path'] for source in config['sources'] if source['provider']=='Codex']):
+            recovered.add(path)
+            native=db.execute("SELECT 1 FROM events WHERE provider='Codex' AND session=? AND id NOT LIKE 'Codex:snipe:%' LIMIT 1",(session,)).fetchone()
+            if native:
+                db.execute("DELETE FROM event_roles WHERE id IN (SELECT id FROM events WHERE session=? AND id LIKE 'Codex:snipe:%')",(session,))
+                db.execute("DELETE FROM events WHERE session=? AND id LIKE 'Codex:snipe:%'",(session,))
+            else:
+                row=event(f'snipe:{session}:{turn}',timestamp,'Codex','Local · account unknown',session,model,True,usage)
+                db.execute('''INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET input=MAX(input,excluded.input),cached=MAX(cached,excluded.cached),cache_write=MAX(cache_write,excluded.cache_write),output=MAX(output,excluded.output),reasoning=MAX(reasoning,excluded.reasoning)''',row)
+            db.execute("INSERT OR REPLACE INTO event_roles SELECT id, 'auditor' FROM events WHERE provider='Codex' AND session=?",(session,))
+            db.execute('INSERT OR IGNORE INTO session_topics VALUES (?,?,?,?,?,?)',('Codex',session,project_name(repository),'Snipe review','Reviews & audits','Snipe coordinator result'))
+        if config.get('snipe_results') or config.get('snipe_search_roots'):
+            report.append(dict(provider='Codex Snipe results',found=bool(recovered),files=len(recovered),changed=len(recovered),errors=0,**audit_coverage))
         return report
 
 
@@ -331,6 +351,8 @@ def main():
     data.mkdir(exist_ok=True)
     config_path = BASE / 'config.json'
     config = json.loads(config_path.read_text() if config_path.exists() else (BASE / 'config.example.json').read_text())
+    config.setdefault('snipe_results', DEFAULT_PATTERNS)
+    config.setdefault('snipe_search_roots', DEFAULT_ROOTS)
     db_path = data / 'usage.sqlite3'
     if args.sync:
         sources=sync(db_path,config)
