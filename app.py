@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import re
 from pathlib import Path
 import sqlite3
 import threading
@@ -21,6 +22,7 @@ def connect(path):
       id TEXT PRIMARY KEY, timestamp TEXT, provider TEXT, account TEXT,
       session TEXT, model TEXT, subagent INTEGER, input INTEGER,
       cached INTEGER, cache_write INTEGER, output INTEGER, reasoning INTEGER);
+    CREATE TABLE IF NOT EXISTS event_roles (id TEXT PRIMARY KEY, role TEXT);
     CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, stamp TEXT);
     ''')
     return db
@@ -53,8 +55,44 @@ def json_lines(path):
                 yield row
 
 
-def records(path, provider, account):
+def codex_auditors(config):
+    """Link explicit Snipe invocation turns to their started child sessions."""
+    auditors = set()
+    for source in config['sources']:
+        if source['provider'] != 'Codex':
+            continue
+        for path in Path(source['path']).expanduser().rglob('*.jsonl'):
+            active = False
+            try:
+                for x in json_lines(path):
+                    p = x.get('payload') or {}
+                    if p.get('type') == 'task_started':
+                        active = False
+                    if x.get('type') == 'response_item' and p.get('role') == 'user':
+                        for c in p.get('content', []):
+                            if re.search(r'(?m)^\s*\$(?:[\w-]+:)?snipe\b', c.get('text', '')):
+                                active = True
+                    item = p.get('item') or {}
+                    if active and item.get('type') == 'SubAgentActivity' and item.get('kind') == 'started':
+                        if item.get('agent_thread_id'):
+                            auditors.add(item['agent_thread_id'])
+            except OSError:
+                continue
+    return auditors
+
+
+def is_war_auditor(value):
+    return isinstance(value, str) and value.split(':')[-1] == 'war-auditor'
+
+
+def records(path, provider, account, auditors=None):
+    auditors = auditors or set()
     if provider == 'Claude Code':
+        try:
+            metadata = json.loads(path.with_suffix('.meta.json').read_text())
+        except (OSError, ValueError):
+            metadata = {}
+        auditor = is_war_auditor(metadata.get('agentType'))
         for x in json_lines(path):
             msg = x.get('message') or {}
             if x.get('type') != 'assistant' or not msg.get('usage'):
@@ -62,9 +100,10 @@ def records(path, provider, account):
             key = msg.get('id') or x.get('requestId') or x.get('uuid')
             if not key or not x.get('timestamp'):
                 continue
-            yield event(key, x['timestamp'], provider, account,
+            row = event(key, x['timestamp'], provider, account,
                         x.get('sessionId', path.stem), msg.get('model', 'unknown'),
                         x.get('isSidechain', False) or 'subagents' in path.parts, msg['usage'])
+            yield row + ('auditor' if auditor or is_war_auditor(x.get('attributionAgent')) else 'subagent' if row[6] else 'main',)
         return
     # Keep only small accounting records; never retain transcript content.
     rows = []
@@ -90,9 +129,10 @@ def records(path, provider, account):
         if detailed:
             if x.get('type') != 'token_usage_record' or not p.get('response_id'):
                 continue
-            yield event(p['response_id'], x['timestamp'], provider, account,
+            row = event(p['response_id'], x['timestamp'], provider, account,
                         p.get('thread_id', session), model,
                         subagent and p.get('thread_id', session) == session, p.get('usage', {}))
+            yield row + ('auditor' if row[4] in auditors else 'subagent' if row[6] else 'main',)
         elif p.get('type') == 'token_count' and p.get('info'):
             total = p['info'].get('total_token_usage') or {}
             if not total or total == previous:
@@ -101,12 +141,15 @@ def records(path, provider, account):
             previous = total
             # Old fork logs can include copied history; timestamp+totals dedup copies.
             key = hashlib.sha256(json.dumps([x['timestamp'], total], sort_keys=True).encode()).hexdigest()
-            yield event(key, x['timestamp'], provider, account, session, model, subagent, delta)
+            yield event(key, x['timestamp'], provider, account, session, model, subagent, delta) + ('auditor' if session in auditors else 'subagent' if subagent else 'main',)
 
 
 def sync(db_path, config):
     with LOCK, connect(db_path) as db:
         report = []
+        auditors = codex_auditors(config)
+        for session in auditors:
+            db.execute("INSERT OR REPLACE INTO event_roles SELECT id, 'auditor' FROM events WHERE provider='Codex' AND session=?", (session,))
         for source in config['sources']:
             root = Path(source['path']).expanduser()
             count = changed = errors = 0
@@ -114,17 +157,20 @@ def sync(db_path, config):
                 count += 1
                 try:
                     st = path.stat()
-                    stamp = f'{st.st_mtime_ns}:{st.st_size}'
+                    meta = path.with_suffix('.meta.json')
+                    meta_stamp = meta.stat().st_mtime_ns if meta.exists() else 0
+                    stamp = f'roles-v2:{st.st_mtime_ns}:{st.st_size}:{meta_stamp}'
                     old = db.execute('SELECT stamp FROM files WHERE path=?', (str(path),)).fetchone()
                     if old and old[0] == stamp:
                         continue
-                    for row in records(path, source['provider'], source.get('account', 'Local · account unknown')):
+                    for row in records(path, source['provider'], source.get('account', 'Local · account unknown'), auditors):
                         # Streaming Claude messages repeat their ID; retain greatest reported usage.
                         db.execute('''INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(id) DO UPDATE SET input=MAX(input,excluded.input),
                         cached=MAX(cached,excluded.cached), cache_write=MAX(cache_write,excluded.cache_write),
                         output=MAX(output,excluded.output), reasoning=MAX(reasoning,excluded.reasoning),
-                        subagent=MAX(subagent,excluded.subagent)''', row)
+                        subagent=MAX(subagent,excluded.subagent)''', row[:-1])
+                        db.execute("INSERT INTO event_roles VALUES (?,?) ON CONFLICT(id) DO UPDATE SET role=CASE WHEN role='auditor' OR excluded.role='auditor' THEN 'auditor' WHEN role='subagent' OR excluded.role='subagent' THEN 'subagent' ELSE 'main' END", (row[0], row[-1]))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?)', (str(path), stamp))
                     changed += 1
                 except (OSError, ValueError, TypeError, KeyError):
@@ -136,22 +182,22 @@ def sync(db_path, config):
 def summary(db_path, config):
     zone = ZoneInfo(config.get('timezone', 'America/Los_Angeles'))
     days, providers, accounts, models = {}, {}, {}, {}
-    total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, auditor=0, responses=0)
+    total = dict(input=0, output=0, cached=0, cache_write=0, reasoning=0, total=0, subagent=0, auditor=0, other=0, responses=0)
     sessions = set()
     with connect(db_path) as db:
-        for row in db.execute('SELECT * FROM events'):
-            _, timestamp, provider, account, session, model, sub, inp, cache, write, out, reasoning = row
+        for row in db.execute('SELECT events.*, event_roles.role FROM events LEFT JOIN event_roles USING(id)'):
+            _, timestamp, provider, account, session, model, sub, inp, cache, write, out, reasoning, recorded_role = row
             try:
                 day = dt.datetime.fromisoformat(timestamp.replace('Z', '+00:00')).astimezone(zone).date().isoformat()
             except (ValueError, AttributeError):
                 continue
             n = inp + out
-            d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, auditor=0, responses=0, breakdown={"main": {}, "subagent": {}, "auditor": {}}))
-            auditor = provider == 'Codex' and model == 'codex-auto-review'
-            role = d['breakdown']['auditor' if auditor else 'subagent' if sub else 'main']
+            d = days.setdefault(day, dict(total=0, input=0, output=0, cached=0, subagent=0, auditor=0, other=0, responses=0, breakdown={"main": {}, "subagent": {}, "auditor": {}, "other": {}}))
+            category = 'other' if provider == 'Codex' and model == 'codex-auto-review' else recorded_role or ('subagent' if sub else 'main')
+            role = d['breakdown'][category]
             role[model] = role.get(model, 0) + n
             for target in (d, total):
-                for key, value in [('total', n), ('input', inp), ('output', out), ('cached', cache), ('subagent', n if sub and not auditor else 0), ('auditor', n if auditor else 0), ('responses', 1)]:
+                for key, value in [('total', n), ('input', inp), ('output', out), ('cached', cache), ('subagent', n if category == 'subagent' else 0), ('auditor', n if category == 'auditor' else 0), ('other', n if category == 'other' else 0), ('responses', 1)]:
                     target[key] += value
             total['cache_write'] += write
             total['reasoning'] += reasoning

@@ -58,7 +58,7 @@ class UsageTests(unittest.TestCase):
         self.write('a.jsonl',rows)
         sync(self.db,self.config('Claude Code'))
         day=summary(self.db,self.config('Claude Code'))['days']['2026-09-09']
-        self.assertEqual(day['breakdown'],{'main':{'alpha':10,'beta':20},'subagent':{'alpha':30},'auditor':{}})
+        self.assertEqual(day['breakdown'],{'main':{'alpha':10,'beta':20},'subagent':{'alpha':30},'auditor':{},'other':{}})
         self.assertEqual(sum(sum(group.values()) for group in day['breakdown'].values()),day['total'])
         self.assertEqual(sum(day['breakdown']['subagent'].values()),day['subagent'])
 
@@ -71,8 +71,35 @@ class UsageTests(unittest.TestCase):
         result=summary(self.db,self.config('Codex'))
         self.assertEqual(result['totals']['total'],100)
         self.assertEqual(result['totals']['subagent'],70)
-        self.assertEqual(result['totals']['auditor'],30)
-        self.assertEqual(result['days']['2026-09-09']['breakdown']['auditor'],{'codex-auto-review':30})
+        self.assertEqual(result['totals']['other'],30)
+        self.assertEqual(result['days']['2026-09-09']['breakdown']['other'],{'codex-auto-review':30})
+
+    def test_claude_auditor_attribution_and_sidecar(self):
+        def row(key, attribution=None):
+            return {'type':'assistant','timestamp':'2026-09-10T01:00:00Z','sessionId':'s','isSidechain':True,'attributionAgent':attribution,'message':{'id':key,'model':'sonnet','usage':{'input_tokens':10}}}
+        p=self.write('subagents/agent-a.jsonl',[row('a')])
+        p.with_suffix('.meta.json').write_text(json.dumps({'agentType':'work-audit-refine:war-auditor'}))
+        self.write('subagents/agent-b.jsonl',[row('b','work-audit-refine:war-auditor')])
+        self.write('subagents/agent-c.jsonl',[row('c','worker')])
+        sync(self.db,self.config('Claude Code'))
+        result=summary(self.db,self.config('Claude Code'))
+        self.assertEqual(result['totals']['auditor'],20)
+        self.assertEqual(result['totals']['subagent'],10)
+
+    def test_snipe_launch_provenance_not_model(self):
+        self.write('parent.jsonl',[
+            {'type':'event_msg','payload':{'type':'task_started'}},
+            {'type':'response_item','payload':{'role':'user','content':[{'text':'$snipe correctness'}]}},
+            {'type':'event_msg','payload':{'item':{'type':'SubAgentActivity','kind':'started','agent_thread_id':'audit'}}},
+            {'type':'event_msg','payload':{'type':'task_started'}},
+            {'type':'response_item','payload':{'role':'user','content':[{'text':'Implement the fix'}]}},
+            {'type':'event_msg','payload':{'item':{'type':'SubAgentActivity','kind':'started','agent_thread_id':'worker'}}}])
+        for name in ['audit','worker']:
+            self.write(name+'.jsonl',[{'type':'session_meta','payload':{'id':name,'source':{'subagent':{'thread_spawn':{}}}}},{'type':'turn_context','payload':{'model':'gpt-5.6-sol'}},{'type':'token_usage_record','timestamp':'2026-09-10T01:00:00Z','payload':{'thread_id':name,'response_id':name,'usage':{'input_tokens':10}}}])
+        sync(self.db,self.config('Codex'))
+        result=summary(self.db,self.config('Codex'))
+        self.assertEqual(result['totals']['auditor'],10)
+        self.assertEqual(result['totals']['subagent'],10)
 
     def test_legacy_cumulative_deltas(self):
         def row(n,t):return {'type':'event_msg','timestamp':t,'payload':{'type':'token_count','info':{'total_token_usage':{'input_tokens':n,'output_tokens':0}}}}
