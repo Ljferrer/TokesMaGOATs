@@ -22,6 +22,8 @@ LOCK = threading.Lock()
 
 def connect(path):
     db = sqlite3.connect(path)
+    # Rollback journals let a long import hold an exclusive lock; WAL keeps readers served.
+    db.execute('PRAGMA journal_mode=WAL')
     db.executescript('''
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY, timestamp TEXT, provider TEXT, account TEXT,
