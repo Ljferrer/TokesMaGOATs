@@ -1,4 +1,5 @@
 """API-equivalent USD at published standard short-context rates, 2026-09-10.
+Opus 5.5 rates verified against Anthropic pricing on 2026-09-25.
 Not invoices: ignores subscriptions, historical rates, long-context/fast premiums,
 batch discounts, residency, taxes and tools. Cache writes assume five-minute TTL.
 """
@@ -6,6 +7,7 @@ import math
 from collections.abc import Mapping
 RATES = {
  'claude-fable-5-1': [10,.25,12.5,50], 'claude-fable-5':[10,1,12.5,50],
+ 'claude-opus-5-5':[4,.2,5,20],
  'claude-opus-5':[5,.5,6.25,25], 'claude-opus-4-8':[5,.5,6.25,25],
  'claude-sonnet-5':[2,.2,2.5,10], 'claude-haiku-4-5-20251001':[1,.1,1.25,5],
  'gpt-6-astra':[10,1,12.5,50], 'gpt-5.6-sol':[4,.4,5,20],

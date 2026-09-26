@@ -2,6 +2,13 @@ import unittest
 from costs import estimate
 
 class CostTests(unittest.TestCase):
+    def test_opus_5_5_is_priced_with_cache_discount(self):
+        x=estimate({('2026-09-25','claude-opus-5-5'):dict(input=1000000,cached=600000,cache_write=100000,output=100000)})
+        self.assertTrue(x['models']['claude-opus-5-5']['priced'])
+        self.assertAlmostEqual(x['models']['claude-opus-5-5']['usd'],3.82)
+        self.assertAlmostEqual(x['cache_savings_usd'],2.18)
+        self.assertEqual(x['priced_tokens'],1100000)
+        self.assertEqual(x['unpriced_tokens'],0)
     def test_cache_partition_and_savings(self):
         x=estimate({('2026-09-10','claude-opus-5'):dict(input=1000000,cached=600000,cache_write=100000,output=100000)})
         self.assertAlmostEqual(x['usd'],4.925)
