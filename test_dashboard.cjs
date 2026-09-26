@@ -14,7 +14,7 @@ const document = {
   createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),querySelectorAll:()=>[]
 };
 const script=fs.readFileSync('index.html','utf8').split('<script>')[1].split('</script>')[0];
-const context=vm.createContext({document,Intl,Date});
+const context=vm.createContext({document,Intl,Date,URLSearchParams});
 vm.runInContext(script.slice(0,script.indexOf("// Bind controls")),context);
 const evaluate=code=>vm.runInContext(code,context);
 const plain=code=>JSON.parse(JSON.stringify(evaluate(code)));
@@ -188,6 +188,26 @@ context.originalLoad=evaluate('load');
   assert.equal(elements.get('toDate').value,'2026-09-10');
   assert.equal(evaluate('activeFilters.start'),'2026-01-01');
   assert.equal(elements.get('total').textContent,'120');
+
+  // Sync uses the server's new day to advance presets, preserving other filters.
+  const usageFixture=context.fetch,requests=[];
+  context.fetch=async url=>{
+    requests.push(url);
+    const incoming=await (await usageFixture()).json(),query=new URL(url,'http://localhost').searchParams;
+    incoming.today='2026-09-11';
+    incoming.range={start:query.get('start'),end:query.get('end')};
+    return {ok:true,json:async()=>incoming};
+  };
+  evaluate("$('period').value='year';activeFilters.provider='Codex'");
+  await evaluate('syncUsage(false)');
+  assert.equal(elements.get('toDate').value,'2026-09-11');
+  assert.equal(evaluate('activeFilters.provider'),'Codex');
+  assert.equal(requests.length,2);
+  evaluate("$('period').value='custom';activeFilters.end='2026-09-10'");
+  requests.length=0;
+  await evaluate('syncUsage(false)');
+  assert.equal(elements.get('toDate').value,'2026-09-10');
+  assert.equal(requests.length,1);
 
   context.fetch=async()=>({ok:false,json:async()=>({error:'cost_rates must be an object'})});
   await assert.rejects(evaluate('load(null)'),/cost_rates must be an object/);

@@ -408,7 +408,12 @@ async function syncUsage(start=true){
   syncPending=true;$('refresh').disabled=true;$('refresh').setAttribute('aria-busy','true');$('syncLabel').textContent='Syncing…';$('status').textContent='Scanning local histories…';
   try{
     if(start){const response=await fetch('/api/sync',{method:'POST'});if(!response.ok)throw Error('Sync could not start. Retry Sync usage.');}
-    await watchSync();while(loading)await pause(100);await load();
+    await watchSync();while(loading)await pause(100);
+    if(await load()&&$('period').value!=='custom'){
+      presetRange();
+      const start=$('fromDate').value,end=$('toDate').value;
+      if(start!==activeFilters.start||end!==activeFilters.end)await load({...activeFilters,start,end});
+    }
   }catch(error){$('status').textContent=error.message}
   finally{syncPending=false;$('refresh').disabled=false;$('refresh').setAttribute('aria-busy','false');$('syncLabel').textContent='Sync usage'}
 }
