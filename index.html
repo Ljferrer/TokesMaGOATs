@@ -173,8 +173,9 @@ function renderDay(key){
   const segments=stackedWeeks(data.days,key,key)[0].segments,colors=modelColors();
   const svg=chartNode('svg',{viewBox:'0 0 220 220',class:'day-pie',role:'img','aria-label':`Token breakdown for ${key}: main chat, task subagents, auditors, and other usage by model`}),defs=chartNode('defs');
   const largest=data.largest_day_all_time??insights(data.days,data.today).peakDay.total,ratio=largest?Math.min(1,day.total/largest):0;
-  svg.style.width=svg.style.height=(110+110*ratio)+'px';
-  const scale=document.createElement('p');scale.className='muted';scale.textContent='Usage: '+(ratio*100).toFixed(1)+'% of your largest day ('+short(largest)+' tokens).'+' Diameter scales linearly from 100 to 200 pixels.';$('dayPieLegend').append(scale);
+  // The 200-unit circle occupies 200/220 of the SVG viewport.
+  svg.style.width=svg.style.height=((50+150*ratio)*220/200)+'px';
+  const scale=document.createElement('p');scale.className='muted';scale.textContent='Usage: '+(ratio*100).toFixed(1)+'% of your largest day ('+short(largest)+' tokens).';$('dayPieLegend').append(scale);
   svg.append(defs);let angle=-Math.PI/2;
   segments.forEach((segment,i)=>{
     const color=modelColor(segment.model),fill=modelPattern(defs,'day-pattern',segment.model,segment.role);
