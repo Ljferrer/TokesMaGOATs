@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 class Element {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.style={};this.attrs={};this.value='2026';this.classList={add(){},remove(){}};}
+  constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.style={};this.attrs={};this.value='2026';const classes=new Set();this.classList={add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name),toggle(name,on){if(on)classes.add(name);else classes.delete(name)}};}
   get options(){return this.children.filter(n=>n.tag==='option')}
   append(...nodes){this.children.push(...nodes)}
   replaceChildren(...nodes){this.children=nodes}
@@ -37,6 +37,24 @@ assert.equal(elements.get('dayBreakdown').hidden,false);
 assert.equal(elements.get('dayPieLegend').children.length,4);
 let slices=elements.get('dayPie').children[0].children.filter(n=>n.attrs.class==='pie-slice');
 assert.equal(slices.length,3);assert.match(slices[2].attrs['aria-label'],/Subagent · alpha: 20 tokens/);
+const dailyRow=elements.get('dayPieLegend').children[1],dailySlice=slices[0];
+assert.equal(dailyRow.tabIndex,0);
+dailySlice.onmouseenter();
+assert.equal(dailyRow.classList.contains('is-highlighted'),true);
+assert.equal(dailySlice.classList.contains('is-highlighted'),true);
+assert.equal(slices[1].classList.contains('is-highlighted'),false);
+dailyRow.onfocus();dailySlice.onmouseleave();
+assert.equal(dailySlice.classList.contains('is-highlighted'),true);
+dailyRow.onblur();
+assert.equal(dailySlice.classList.contains('is-highlighted'),false);
+assert.equal(dailyRow.classList.contains('is-highlighted'),false);
+dailyRow.onmouseenter();
+assert.equal(dailySlice.classList.contains('is-highlighted'),true);
+dailyRow.onmouseleave();dailySlice.onfocus();
+assert.equal(dailyRow.classList.contains('is-highlighted'),true);
+dailySlice.onblur();
+assert.equal(dailyRow.classList.contains('is-highlighted'),false);
+
 assert.equal(typeof buttons.at(-1).onmouseenter,'function');assert.equal(buttons.at(-1).onfocus,undefined);
 assert.equal(elements.get('dayPie').children[0].style.width,'220px');
 buttons.at(-1).onmouseenter();assert.equal(elements.get('dayPie').textContent,'No recorded tokens for this day.');
