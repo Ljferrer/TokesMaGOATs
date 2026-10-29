@@ -423,6 +423,59 @@ class ActivityTests(unittest.TestCase):
         row=self.response('missing','2026-01-01T00:00:00Z');del row['payload']['usage']['output_tokens']
         self.write('r.jsonl',[row]);sync(self.db,self.config);usage,_=self.evidence()
         day=usage['days']['2026-01-01'];self.assertEqual(day['raw_verified'],0);self.assertEqual(day['unknown_counter_records'],1)
+    def test_legacy_counter_validity_survives_normalization(self):
+        baseline=dict(input_tokens=100,output_tokens=5,cached_input_tokens=0)
+        cases=[('explicit-zero',baseline,105)]
+        for field in ('input_tokens','output_tokens','cached_input_tokens','cache_write_input_tokens'):
+            cases.append((field,dict(baseline,**{field:None}),0))
+        for field in ('input_tokens','output_tokens','cached_input_tokens'):
+            cases.append(('missing-'+field,{k:v for k,v in baseline.items() if k!=field},0))
+        for name,total,verified in cases:
+            with self.subTest(name=name):
+                self.db=self.root/(name+'.sqlite3')
+                self.write('legacy.jsonl',[dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=total)))])
+                sync(self.db,self.config);usage,_=self.evidence();day=usage['days']['2026-01-01']
+                self.assertEqual(day['raw_verified'],verified);self.assertEqual(day['unknown_counter_records'],int(not verified))
+                self.assertEqual(day['total'],(total.get('input_tokens') or 0)+(total.get('output_tokens') or 0))
+
+    def test_legacy_delta_requires_known_current_and_previous_counters(self):
+        totals=[dict(input_tokens=100,output_tokens=5,cached_input_tokens=None),dict(input_tokens=140,output_tokens=10,cached_input_tokens=7),dict(input_tokens=180,output_tokens=15,cached_input_tokens=9),dict(input_tokens=220,output_tokens=20,cached_input_tokens=None)]
+        self.write('legacy.jsonl',[dict(type='event_msg',timestamp='2026-01-0'+str(i+1)+'T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=total))) for i,total in enumerate(totals)])
+        sync(self.db,self.config)
+        with connect(self.db) as db:public=eng.export_report(eng.view(db,self.config,{}))
+        for day,total,verified,unknown in [('2026-01-01',105,0,1),('2026-01-02',45,0,1),('2026-01-03',45,45,0),('2026-01-04',45,0,1)]:
+            row=public['usage']['days'][day]
+            self.assertEqual((row['total'],row['raw_verified'],row['unknown_counter_records']),(total,verified,unknown))
+        exported=list(csv.reader(io.StringIO(eng.csv_report(public))))
+        self.assertEqual([json.loads(row[12])['raw_verified'] for row in exported[2:]],[0,0,45,0])
+
+    def test_stream_counter_validity_belongs_to_the_maximum_observation(self):
+        for provider in ('Codex','Claude Code'):
+            self.config['sources'][0]['provider']=provider
+            for order in ((10,'20'),('20',10)):
+                with self.subTest(provider=provider,order=order):
+                    self.db=self.root/(provider+str(order[0])+'.sqlite3')
+                    def row(value):
+                        if provider=='Codex':return self.response('r','2026-01-01T12:00:00Z',value)
+                        return dict(type='assistant',timestamp='2026-01-01T12:00:00Z',sessionId='parent',message=dict(id='r',usage=dict(input_tokens=value,output_tokens=5,cache_read_input_tokens=0,cache_creation_input_tokens=0)))
+                    rows=[row(v) for v in order];self.write('stream.jsonl',rows);sync(self.db,self.config)
+                    day=self.evidence()[0]['days']['2026-01-01']
+                    self.assertEqual((day['total'],day['raw_verified'],day['unknown_counter_records']),(25,0,1))
+                    self.write('stream.jsonl',rows+[row(20)]);sync(self.db,self.config)
+                    self.assertEqual(self.evidence()[0]['days']['2026-01-01']['raw_verified'],25)
+                    self.write('stream.jsonl',rows+[row(20),row('20')]);sync(self.db,self.config)
+                    self.assertEqual(self.evidence()[0]['days']['2026-01-01']['raw_verified'],25)
+                    self.write('stream.jsonl',rows+[row(30)]);sync(self.db,self.config)
+                    self.assertEqual(self.evidence()[0]['days']['2026-01-01']['raw_verified'],35)
+
+    def test_parser_upgrade_rebuilds_legacy_counter_validity_without_changing_totals(self):
+        self.write('legacy.jsonl',[dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=dict(input_tokens=100,output_tokens=5,cached_input_tokens=None))))])
+        with patch.object(ev,'PARSER_VERSION','engineering-evidence-v4'):sync(self.db,self.config)
+        with connect(self.db) as db:
+            db.execute('UPDATE response_sources SET known=?',(json.dumps(dict(input=True,output=True,cached=True,cache_write=True)),))
+        self.assertEqual(self.evidence()[0]['days']['2026-01-01']['raw_verified'],105)
+        sync(self.db,self.config);day=self.evidence()[0]['days']['2026-01-01']
+        self.assertEqual((day['total'],day['raw_verified'],day['unknown_counter_records']),(105,0,1))
     def test_raw_mismatch_raw_only_and_frozen_ledger(self):
         path=self.write('r.jsonl',[self.response('r','2026-01-01T00:00:00Z')]);sync(self.db,self.config)
         self.write('r.jsonl',[self.response('r','2026-01-01T00:00:00Z',20),self.response('new','2026-01-01T01:00:00Z',30)])
@@ -456,6 +509,19 @@ class ActivityTests(unittest.TestCase):
         sync(self.db,self.config);_,activity=self.evidence();day=activity['days']['2026-03-08']
         self.assertEqual((day['roots'],day['children'],day['positive_accounting_identities'],day['zero_or_synthetic_only']),(1,1,1,1));self.assertEqual(day['task_span_peak'],2)
         self.assertEqual(day['positive_task_span_peak'],1)
+        for i in range(3):
+            self.write('next'+str(i)+'.jsonl',[dict(type='session_meta',payload=dict(id='next'+str(i))),dict(type='event_msg',timestamp='2026-03-09T07:10:00Z',payload=dict(type='task_started')),dict(type='event_msg',timestamp='2026-03-09T07:20:00Z',payload=dict(type='task_completed'))])
+        sync(self.db,self.config)
+        with connect(self.db) as db:report=eng.view(db,self.config,{},cutoff='2026-03-10T00:00:00Z')
+        self.assertEqual(report['activity']['days']['2026-03-08']['task_span_peak'],2)
+        self.assertEqual(report['activity']['days']['2026-03-09']['task_span_peak'],3)
+
+    def test_fall_dst_day_preserves_last_local_hour(self):
+        self.config['timezone']='America/Los_Angeles'
+        for i in range(3):
+            self.write(str(i)+'.jsonl',[dict(type='session_meta',payload=dict(id='late'+str(i))),dict(type='event_msg',timestamp='2026-11-02T07:10:00Z',payload=dict(type='task_started')),dict(type='event_msg',timestamp='2026-11-02T07:20:00Z',payload=dict(type='task_completed'))])
+        sync(self.db,self.config)
+        self.assertEqual(self.evidence()[1]['days']['2026-11-01']['task_span_peak'],3)
     def test_claude_children_sharing_session_and_copied_response(self):
         self.config['sources'][0]['provider']='Claude Code'
         def row(id):return dict(type='assistant',timestamp='2026-01-01T12:00:00Z',sessionId='parent',message=dict(id=id,usage=dict(input_tokens=1,output_tokens=1,cache_creation_input_tokens=0,cache_read_input_tokens=0)))

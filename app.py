@@ -156,11 +156,11 @@ def records(path, provider, account, auditors=None, provenance=None):
             if not total or total == previous:
                 continue
             delta = {k: max(0, number(total, k) - number(previous, k)) for k in total}
-            previous = total
             # Old fork logs can include copied history; timestamp+totals dedup copies.
             key = hashlib.sha256(json.dumps([x['timestamp'], total], sort_keys=True).encode()).hexdigest()
             row = event(key, x['timestamp'], provider, account, session, model, subagent, delta)
-            evidence.record_provenance(provenance, row, delta, provider, granularity='legacy_delta')
+            evidence.record_provenance(provenance, row, total, provider, granularity='legacy_delta', previous_usage=previous)
+            previous = total
             yield row + ('auditor' if session in auditors else 'subagent' if subagent else 'main',)
 
 

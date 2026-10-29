@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-PARSER_VERSION = 'engineering-evidence-v4'
+PARSER_VERSION = 'engineering-evidence-v5'
 UTC = dt.timezone.utc
 
 
@@ -68,17 +68,23 @@ def known_counters(usage, provider, legacy=False):
     return known
 
 
-def record_provenance(target, row, usage, provider, identity=None, granularity='response'):
+def record_provenance(target, row, usage, provider, identity=None, granularity='response', previous_usage=None):
     if target is None:
         return
     timestamp = instant(row[1]).isoformat()
     counters = dict(zip(('input', 'cached', 'cache_write', 'output', 'reasoning'), row[7:12]))
     known = known_counters(usage, provider, granularity == 'legacy_delta')
+    if previous_usage:
+        prior = known_counters(previous_usage, provider, granularity == 'legacy_delta')
+        known = {key: valid and prior[key] for key, valid in known.items()}
     item = target.get(row[0])
     if item:
         for key, value in counters.items():
+            if value > item['counters'][key]:
+                item['known'][key] = known.get(key, False)
+            elif value == item['counters'][key]:
+                item['known'][key] = item['known'].get(key, False) or known.get(key, False)
             item['counters'][key] = max(item['counters'][key], value)
-            item['known'][key] = item['known'].get(key, False) or known.get(key, False)
         item['first_event'] = min(item['first_event'], timestamp)
         item['last_event'] = max(item['last_event'], timestamp)
     else:
