@@ -62,6 +62,15 @@ app.main()
         for body in ({},[],{'filters':[],'privacy':True},{'filters':{'projects':'private'},'privacy':True},{'filters':{},'privacy':'yes'}):
             with self.subTest(body=body):self.assertEqual(self.request('/api/engineering/export',body)[0],400)
         self.assertEqual(self.request('/api/engineering/import',[])[0],400)
+    def test_export_accepts_the_actual_applied_selection_shape(self):
+        applied=dict(start='2026-01-01',end='2026-01-03',provider='',model='',role='',compare='previous',projects=[])
+        status,result=self.request('/api/engineering/export',dict(filters=applied,privacy=True))
+        self.assertEqual(status,200)
+        self.assertEqual(result['report']['selection']['start'],applied['start'])
+        self.assertNotIn('provider',result['report']['selection'])
+        self.assertEqual(result['report']['selection']['project_count'],0)
+        self.assertIn('metadata_json',result['csv'])
+
     def test_export_is_frozen_and_public(self):
         code,result=self.request('/api/engineering/export',{'filters':{'start':'2026-01-01','end':'2026-01-03'},'privacy':True})
         self.assertEqual(code,200);self.assertTrue(result['report']['privacy_mode']);self.assertIn('metadata_json',result['csv'])

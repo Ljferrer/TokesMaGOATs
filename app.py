@@ -201,6 +201,8 @@ def sync(db_path, config):
                     provenance = {}
                     db.execute('SAVEPOINT history_file')
                     for row in records(path, source['provider'], source.get('account', 'Local · account unknown'), auditors, provenance):
+                        if provenance[row[0]]['granularity'] == 'legacy_delta' and db.execute('SELECT 1 FROM superseded_legacy WHERE event_id=?', (row[0],)).fetchone():
+                            continue
                         # Streaming Claude messages repeat their ID; retain greatest reported usage.
                         db.execute('''INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(id) DO UPDATE SET timestamp=CASE WHEN julianday(excluded.timestamp)<julianday(timestamp) THEN excluded.timestamp ELSE timestamp END,input=MAX(input,excluded.input),
@@ -213,6 +215,7 @@ def sync(db_path, config):
                     if any(p['granularity'] == 'response' for p in provenance.values()):
                         legacy_ids = legacy_source_ids(db, path) if source['provider']=='Codex' else []
                         for key in legacy_ids:
+                            db.execute('INSERT OR IGNORE INTO superseded_legacy VALUES (?,?,?)', (key,str(path),evidence.now()))
                             db.execute('DELETE FROM events WHERE id=?', (key,))
                             db.execute('DELETE FROM event_roles WHERE id=?', (key,))
                             db.execute('DELETE FROM response_sources WHERE event_id=?', (key,))
@@ -329,6 +332,22 @@ def validated_range(filters, today):
     if start>end:raise ValueError('Start must precede end.')
     if end>today:raise ValueError('End cannot be in the future.')
     return dict(start=start,end=end)
+
+
+def normalized_filters(values, today):
+    engineering.exact_keys(values, (), ('start','end','provider','model','role','compare','projects'))
+    result = {}
+    for key,value in values.items():
+        if key == 'projects':
+            engineering.refs(value, 'projects', False)
+            if value:
+                result[key] = value
+        else:
+            engineering.require(isinstance(value,str), 'Filter values must be strings')
+            if value:
+                result[key] = engineering.text(value, key)
+    result.update(validated_range(result,today))
+    return result
 
 
 def comparison_range(filters):
@@ -463,8 +482,8 @@ def main():
                     query=parse_qs(urlsplit(self.path).query)
                     filters={k:query[k][0] for k in ('start','end','provider','model','role','compare') if query.get(k)}
                     today=dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
-                    filters.update(validated_range(filters,today))
                     if query.get('project'):filters['projects']=query['project']
+                    filters=normalized_filters(filters,today)
                     self.send(200,json.dumps(usage_view(db_path,config,filters,state)).encode())
                 except (ValueError,OverflowError) as error:
                     self.send(400,json.dumps({'error':str(error)}).encode())
@@ -503,16 +522,9 @@ def main():
                         with LOCK, connect(db_path) as db:
                             if self.path.endswith('/export'):
                                 engineering.exact_keys(document, ('filters','privacy'))
-                                filters = document['filters']
-                                engineering.exact_keys(filters, (), ('start','end','provider','model','role','compare','projects'))
-                                for key,value in filters.items():
-                                    if key == 'projects':
-                                        engineering.refs(value, 'projects', False)
-                                    else:
-                                        engineering.text(value, key)
                                 engineering.require(type(document['privacy']) is bool, 'privacy must be boolean')
                                 today = dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
-                                filters.update(validated_range(filters, today))
+                                filters = normalized_filters(document['filters'], today)
                                 report = engineering.export_report(engineering.view(db, config, filters), bool(document.get('privacy', True)))
                                 body = engineering.encoded(report)
                                 identifier = hashlib.sha256(body.encode()).hexdigest()

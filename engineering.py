@@ -39,7 +39,7 @@ def git(path, *args):
     env = {k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
     env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1', GIT_TERMINAL_PROMPT='0', GIT_NO_LAZY_FETCH='1')
     try:
-        process = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-C', str(path), *args], env=env, capture_output=True, timeout=30)
+        process = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'log.showSignature=false', '-C', str(path), *args], env=env, capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ValueError('Local Git observation failed') from error
     if process.returncode:
@@ -52,10 +52,24 @@ def git(path, *args):
 def canonical_repository(path):
     remote = git(path, 'config', '--local', '--get-regexp', r'^remote\..*\.url$') if git(path, 'remote') else ''
     origin = next((line.split(' ', 1)[1] for line in remote.splitlines() if line.startswith('remote.origin.url ')), '')
-    match = re.fullmatch(r'(?:https?://|ssh://(?:[^@/]+@)?|[^@/]+@)([^/:]+)[:/](.+?)(?:\.git)?/?', origin)
-    if match:
-        host, repo = match.groups()
-        return host.lower() + '/' + (repo.lower() if host.lower() == 'github.com' else repo)
+    host, repo, port = None, None, None
+    if origin.startswith(('https://','http://','ssh://','git://')):
+        try:
+            url = urlsplit(origin)
+            host, repo = url.hostname, url.path.lstrip('/')
+            if url.port != {'https':443,'http':80,'ssh':22,'git':9418}[url.scheme]:
+                port = url.port
+        except ValueError as error:
+            raise ValueError('Invalid configured Git origin URL') from error
+    else:
+        match = re.fullmatch(r'(?:[^@/:]+@)?([^/:]+):(.+)', origin)
+        if match:
+            host, repo = match.groups()
+    if host and repo:
+        host = host.lower().rstrip('.')
+        repo = repo.rstrip('/').removesuffix('.git')
+        authority = ('['+host+']' if ':' in host else host) + (':'+str(port) if port else '')
+        return authority + '/' + (repo.lower() if host == 'github.com' else repo)
     common = git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     return 'local:' + hashlib.sha256(common.encode()).hexdigest()[:24]
 
@@ -270,6 +284,8 @@ def validate_assessment(db, document, timezone):
                 refs(test['evidence'], 'test evidence')
     for item in document['work_items']:
         require(set(item['related_items']) <= item_ids-{item['id']}, 'Unknown or self-referential related item')
+    for scenario in SCENARIOS:
+        require(math.isfinite(sum(item['effort']['hours_'+scenario] for item in document['work_items'] if item['effort']['status']=='assessed')), 'The combined scenario hours must remain finite')
     excluded = set()
     for entry in array(document['excluded_integrations'], 'excluded_integrations'):
         exact_keys(entry, ('repository', 'head', 'reason', 'evidence'))

@@ -113,6 +113,25 @@ class EngineeringTests(unittest.TestCase):
         for invalid in (float('nan'),float('inf'),-1,True,100):
             bad=copy.deepcopy(changed);bad['version']=3;bad['work_items'][0]['effort']['hours_low']=invalid
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):eng.import_assessment(self.db,bad,'UTC')
+    def test_total_hours_cannot_overflow_even_when_individual_values_are_finite(self):
+        for item in self.doc['work_items']:
+            item['effort'].update(hours_low=1e308,hours_central=1e308,hours_high=1e308)
+        with self.assertRaisesRegex(ValueError,'combined'):
+            eng.import_assessment(self.db,self.doc,'UTC')
+
+    def test_shared_commit_accepts_disjoint_scopes_and_configuration_quality(self):
+        (self.repo/'config.json').write_text('{"enabled":true}')
+        self.git('add','config.json')
+        head=self.commit('other.py','other=1\n','2026-01-03T12:00:00Z')
+        self.snapshot=eng.collect_repositories(self.db,self.config)[0];self.doc['snapshots']=[self.snapshot['id']]
+        config_item=self.item('configuration',head,'config.json',2)
+        review=self.quality();review.update(revision=head,files=['config.json']);review['tests']=[]
+        config_item['quality']=[review]
+        self.doc['work_items'].extend([config_item,self.item('disjoint',head,'other.py',3)])
+        eng.import_assessment(self.db,self.doc,'UTC');result=self.view()
+        self.assertEqual(result['days'][2]['hours']['central'],5)
+        self.assertEqual(result['days'][2]['items'][0]['quality'][0]['quality_score'],70)
+
     def test_unique_ids_credit_keys_and_scope(self):
         for field in ('id','credit_key'):
             bad=copy.deepcopy(self.doc);bad['work_items'][1][field]=bad['work_items'][0][field]
@@ -172,6 +191,25 @@ class EngineeringTests(unittest.TestCase):
             for secret in ('SECRET',self.first,str(self.repo),'session','me@example.test','Example'):
                 self.assertNotIn(secret,value)
             self.assertEqual(shared['privacy_mode'],private);self.assertEqual(shared['selection']['project_count'],1)
+    def test_collector_does_not_execute_configured_signature_helpers(self):
+        marker=self.root/'verification-program-ran'
+        probe=self.root/'gpg-probe';probe.write_text('#!/bin/sh\ntouch "'+str(marker)+'"\nexit 1\n');probe.chmod(0o700)
+        self.git('config','log.showSignature','true');self.git('config','gpg.program',str(probe))
+        raw=self.git('cat-file','commit','HEAD');headers,message=raw.split('\n\n',1)
+        signed=headers+'\ngpgsig -----BEGIN PGP SIGNATURE-----\n fake\n -----END PGP SIGNATURE-----\n\n'+message+'\n'
+        sha=subprocess.check_output(['git','-C',str(self.repo),'hash-object','-t','commit','-w','--stdin'],input=signed,text=True).strip()
+        self.git('update-ref','refs/heads/main',sha)
+        eng.collect_repositories(self.db,self.config)
+        self.assertFalse(marker.exists(), 'Local observation must not execute a configured signature helper')
+
+    def test_canonical_repository_strips_credentials_and_default_ports(self):
+        self.git('remote','add','origin','https://user:SECRET@github.com:443/Example/Repo.git')
+        self.assertEqual(eng.canonical_repository(self.repo),'github.com/example/repo')
+        self.git('remote','set-url','origin','ssh://git@github.com:22/Example/Repo.git')
+        self.assertEqual(eng.canonical_repository(self.repo),'github.com/example/repo')
+        self.git('remote','set-url','origin','ssh://git@example.test:2222/Team/Repo.git')
+        self.assertEqual(eng.canonical_repository(self.repo),'example.test:2222/Team/Repo')
+
     def test_git_first_parent_merges_stale_refs_and_duplicate_checkouts(self):
         self.git('remote','add','origin','git@github.com:Example/Repo.git')
         self.git('checkout','-b','feature');branch=self.commit('feature.py','f=1\n','2026-01-02T14:00:00Z','other@example.test')
@@ -264,6 +302,72 @@ class ActivityTests(unittest.TestCase):
         sync(self.db,self.config)
         self.assertEqual(summary(self.db,self.config)['totals']['total'],105)
         self.assertEqual(self.evidence()[0]['days']['2026-01-01']['total'],105)
+    def test_superseded_legacy_cannot_return_from_a_later_archive(self):
+        legacy=dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=dict(input_tokens=100,output_tokens=5))))
+        self.write('r.jsonl',[legacy]);sync(self.db,self.config)
+        self.write('r.jsonl',[legacy,self.response('detailed','2026-01-01T12:00:00Z',100,5)]);sync(self.db,self.config)
+        self.write('archive/old.jsonl',[legacy])
+        unrelated=copy.deepcopy(legacy);unrelated['timestamp']='2026-01-03T12:00:00Z';unrelated['payload']['info']['total_token_usage']={'input_tokens':20,'output_tokens':0}
+        self.write('unrelated.jsonl',[unrelated])
+        for _ in range(2):
+            sync(self.db,self.config)
+            self.assertEqual(summary(self.db,self.config)['totals']['total'],125)
+            usage,_=self.evidence();self.assertEqual(usage['days']['2026-01-01']['total'],105);self.assertEqual(usage['raw_only_records'],0)
+        # A changed legacy copy must not resurrect the established identity either.
+        self.write('archive/old.jsonl',[legacy,legacy]);sync(self.db,self.config)
+        self.assertEqual(summary(self.db,self.config)['totals']['total'],125)
+
+    def test_native_child_relationship_wins_over_copy_in_either_source_order(self):
+        child=self.response('child-response','2026-01-01T12:01:00Z');child['payload']['thread_id']='CHILD_SECRET'
+        parent_meta=dict(type='session_meta',timestamp='2026-01-01T12:00:00Z',payload=dict(id='ROOT_SECRET'))
+        child_meta=dict(type='session_meta',timestamp='2026-01-01T12:00:30Z',payload=dict(id='CHILD_SECRET',source=dict(subagent=dict(thread_spawn=dict(parent_thread_id='ROOT_SECRET')))))
+        self.write('parent/parent.jsonl',[parent_meta,child])
+        self.write('child/child.jsonl',[child_meta,child,dict(type='event_msg',timestamp='2026-01-01T12:02:00Z',payload=dict(type='task_completed'))])
+        for first in ('parent','child'):
+            database=self.root/(first+'.sqlite3')
+            self.config['sources']=[dict(provider='Codex',path=str(self.root/'logs'/name)) for name in (first,'child' if first=='parent' else 'parent')]
+            sync(database,self.config)
+            with connect(database) as db:report=eng.view(db,self.config,dict(start='2026-01-01',end='2026-01-01'))
+            day=report['activity']['days']['2026-01-01'];identity=next(a for a in day['identities'] if a['id']=='Codex:CHILD_SECRET')
+            self.assertTrue(identity['child']);self.assertEqual(identity['parent'],'Codex:ROOT_SECRET');self.assertIn('estimated child',identity['span_basis'])
+            self.assertEqual((day['roots'],day['children']),(1,1));self.assertEqual(report['weekly'][0]['activity']['children'],1)
+            self.assertIn('CHILD_SECRET',day['positive_identity_ids'][0])
+            for private in (True,False):
+                public=eng.export_report(report,private);serialized=json.dumps(public)+eng.csv_report(public)
+                self.assertNotIn('ROOT_SECRET',serialized);self.assertNotIn('CHILD_SECRET',serialized)
+                self.assertEqual(public['activity']['days']['2026-01-01']['children'],1)
+
+    def test_native_child_without_parent_is_still_a_child_in_both_orders(self):
+        response=self.response('r','2026-01-01T12:01:00Z');response['payload']['thread_id']='child'
+        self.write('parent/copy.jsonl',[dict(type='session_meta',payload=dict(id='parent')),response])
+        self.write('child/native.jsonl',[dict(type='session_meta',payload=dict(id='child',source=dict(subagent={}))),response])
+        for order in (('parent','child'),('child','parent')):
+            self.config['sources']=[dict(provider='Codex',path=str(self.root/'logs'/name)) for name in order]
+            database=self.root/('no-edge-'+order[0]+'.sqlite3');sync(database,self.config)
+            with connect(database) as db:report=eng.view(db,self.config,dict(start='2026-01-01',end='2026-01-01'))
+            child=next(a for a in report['activity']['days']['2026-01-01']['identities'] if a['id']=='Codex:child')
+            self.assertTrue(child['child']);self.assertIsNone(child['parent'])
+
+    def test_native_child_metadata_can_fill_previously_missing_parent(self):
+        incomplete=dict(type='session_meta',timestamp='2026-01-01T12:00:00Z',payload=dict(id='child',source=dict(subagent={})))
+        complete=copy.deepcopy(incomplete);complete['payload']['source']['subagent']={'thread_spawn':{'parent_thread_id':'parent'}}
+        response=self.response('r','2026-01-01T12:01:00Z');response['payload']['thread_id']='child'
+        self.write('a.jsonl',[incomplete,response]);self.write('b.jsonl',[complete,response]);sync(self.db,self.config)
+        _,activity=self.evidence();identity=activity['days']['2026-01-01']['identities'][0]
+        self.assertEqual(identity['parent'],'Codex:parent');self.assertTrue(identity['child'])
+        # Explicit native metadata later in the same stream also supersedes a copy.
+        body=ev.collect_activity(Path('late.jsonl'),'Codex',[response,complete,response])
+        child=next(a for a in body if a['id']=='Codex:child')
+        self.assertTrue(child['child']);self.assertEqual(child['parent'],'Codex:parent')
+
+    def test_conflicting_native_parent_edges_are_explicitly_uncertain(self):
+        response=self.response('r','2026-01-01T12:01:00Z');response['payload']['thread_id']='child'
+        for name in ('one','two','three'):
+            meta=dict(type='session_meta',timestamp='2026-01-01T12:00:00Z',payload=dict(id='child',source=dict(subagent=dict(thread_spawn=dict(parent_thread_id=name)))))
+            self.write(name+'.jsonl',[meta,response])
+        sync(self.db,self.config);identity=self.evidence()[1]['days']['2026-01-01']['identities'][0]
+        self.assertIsNone(identity['parent']);self.assertTrue(identity['identity_uncertain']);self.assertEqual(identity['parent_candidates'],['Codex:one','Codex:three','Codex:two'])
+
     def test_trimmed_raw_reconcile_retains_legacy_supersession(self):
         legacy=dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=dict(input_tokens=100,output_tokens=5))))
         path=self.write('r.jsonl',[legacy]);sync(self.db,self.config)

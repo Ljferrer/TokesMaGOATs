@@ -7,7 +7,7 @@ const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Eleme
 const context=vm.createContext({document:{createElement:tag=>new Element(tag)},Intl,$:get,short:n=>String(n),preferences:{privacy:false},monday:()=> '2025-12-29'});
 vm.runInContext(fs.readFileSync('engineering.js','utf8'),context);
 const stats={status:'partial',complete:false,assessed_dates:2,eligible_dates:3,denominator_hours:24,scenarios:Object.fromEntries(['low','central','high'].map(s=>[s,{minimum:null,maximum:null,median:null,average:null,total_estimated_hours:32}]))};
-context.data={engineering:{delivery_scope:'Independent delivery scope',repositories:[],timezone:'UTC',cutoff:'2026-01-03T15:00:00Z',assessment_cutoff:'2026-01-03T14:00:00Z',sensitivity:{8:stats},full_days:{8:{...stats,eligible_dates:2,scenarios:{central:{average:2}}}},usage:{days:{},limitations:[]},activity:{days:{},limitations:[]},baseline:'Conventional engineering',assumptions:[],days:[{date:'2026-01-03',status:'unknown',partial_day:true,eligible:true,hours:{low:null,central:null,high:null},unknown_items:['unestimated'],integrations:[],items:[{scope:'SECRET/customer',effort:{status:'unreviewed'},quality:[{quality_score:null,confidence:'low',final_day_scope:false,tests:[{classification:'present_only',result:'not_run'}]}]}]}],weekly:[{date:'2025-12-29',...stats}]}};
+context.data={engineering:{delivery_scope:'Independent delivery scope',repositories:[],timezone:'UTC',cutoff:'2026-01-03T15:00:00Z',assessment_cutoff:'2026-01-03T14:00:00Z',sensitivity:{8:stats},full_days:{8:{...stats,eligible_dates:2,scenarios:{central:{average:2}}}},usage:{days:{},limitations:[]},activity:{days:{},limitations:[]},baseline:'Conventional engineering',assumptions:[],days:[{date:'2026-01-03',status:'unknown',partial_day:true,eligible:true,hours:{low:null,central:null,high:null},unknown_items:['unestimated'],integrations:[],items:[{scope:'SECRET/customer',effort:{status:'unreviewed'},quality:[{quality_score:null,confidence:'low',final_day_scope:false,tests:[{classification:'present_only',result:'not_run',date:'2026-01-02',applies_to_delivered:true}]}]}]}],weekly:[{date:'2025-12-29',...stats}]}};
 get('engineeringHours').value='8';vm.runInContext('renderEngineering()',context);
 assert.match(get('engineeringCoverage').textContent,/2\/3 eligible/);assert.match(get('engineeringCoverage').textContent,/denominator 3 dates × 8 hours = 24 hours/);
 assert.equal(get('engineeringStats').children[1].children[4].textContent,'Unknown');assert.match(get('engineeringFullDays').textContent,/central average 2×/);
@@ -22,3 +22,16 @@ assert.match(flatten(get('engineeringDays')),/4 assessed engineer-days/);assert.
 const html=fs.readFileSync('index.html','utf8');assert.match(html,/<script src="\/engineering.js"><\/script>/);
 assert.ok(html.indexOf('id="engineeringEditor"')>html.indexOf('data-snapshot-ignore id="engineeringEditor"'));
 console.log('Engineering dashboard checks passed: unknowns, denominators, partial/full-day comparison, weekly labels, privacy and PNG exclusions.');
+
+context.data.engineering.days[0].items[0].quality[0].tests=[{classification:'later_historical_snapshot_rerun',result:'passed',date:'2026-01-04',applies_to_delivered:false}];
+get('engineeringPeriod').value='daily';vm.runInContext('renderEngineering()',context);
+assert.match(share(get('engineeringDays')),/2026-01-04.*does not apply to delivered code/);
+context.fetch=async()=>({ok:false,json:async()=>({error:'Cannot open /SECRET/customer/repository'})});
+vm.runInContext('bindEngineering()',context);
+(async()=>{
+  await get('engineeringCollect').onclick();
+  assert.match(get('engineeringStatus').textContent,/SECRET/);
+  assert.doesNotMatch(get('status').textContent,/SECRET|customer|repository/);
+  context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);
+  assert.equal(get('engineeringEditor').hidden,true);
+})().catch(error=>{console.error(error);process.exitCode=1});

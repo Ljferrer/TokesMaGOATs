@@ -30,3 +30,27 @@ The completeness sweep also added explicit manual PR/deployment references and n
 Residual limitation: a pre-feature legacy event whose original cumulative snapshots and all source associations have already disappeared cannot be reliably matched to a later detailed response. Cleanup only removes identifiable legacy contributions; it does not guess or delete unrelated retained usage. This is the same missing-evidence boundary exposed by provenance coverage.
 
 Validation after repair: 69 Python tests and both Node suites pass. Audit seats still do not execute tests. Round 2 reviews the complete accumulated diff, including the consumers changed by repair.
+
+## Round 2 — cause and consumer sweep before repair
+
+Stable scope, complete coverage. Correctness, cascading-impact and test-fidelity requested changes; security approved with a Minor privacy error-path finding.
+
+- **Supersession is permanent ledger identity, not a one-time source cleanup.** The previous repair retained source associations but still allowed a newly discovered legacy copy to reinsert a proven superseded ID. The initial copied-source sweep was incomplete. Sweep insertion, unchanged-file skipping, either source order, repeated sync, raw-only classification, archive discovery and unrelated legacy preservation. Establish a durable superseded-ID record and consult it at the legacy insertion boundary.
+- **Identity relationships follow authoritative evidence, not file order.** A copied child response in a parent log inferred a root before native child metadata arrived. Sweep native versus copied metadata, parent edges, child span labels, both source orders, fallback identities, daily and weekly projections.
+- **Displayed and exported selections share a normalizer.** Applied controls produce empty optional filter strings; GET omitted them while POST rejected them. Sweep actual `activeFilters` payload, date defaults, project arrays, both export formats and invalid shapes; normalize once at the API boundary.
+- **Private errors and test qualifications survive projection correctly.** Keep detailed errors in the excluded local editor and use a fixed public status. Render test date and applicability in the PNG-safe summary. Populate privacy fixtures with real root/child metadata before asserting identity redaction.
+- **Finite inputs must produce finite aggregates.** A self-review probe admitted two finite `1e308` hour estimates whose total is infinity. Validate the combined scenario totals before persistence; the new fixture fails on the pinned implementation. Check statistics, JSON serialization and exports as consumers.
+
+A separate mirror fixture now exercises genuinely disjoint paths in one shared commit and a behavior-changing JSON configuration review; both must remain valid.
+
+### Round 2 closure evidence
+
+Before repair, newly discovered legacy archives restored superseded usage (230 instead of 125 tokens including an unrelated legacy event), copied child observations became roots in one source order, and the real applied filter payload returned HTTP 400 on export. New assertions also exposed private error text in the public snapshot, lost historical-test applicability, and infinite combined estimates. The privacy regression now proves root/child identities exist internally before testing their absence from both public export modes.
+
+Identity aggregation now unions explicit child/parent facts instead of ranking files or treating missing metadata as evidence of a root. Tests cover both source orders, native metadata appearing later within one stream, children without known parents, later parent completion, and three conflicting parents. An intermediate rank-based downgrade guard survived mutation; that redundant approach was removed rather than claimed as verified.
+
+Two additional Git boundary probes failed before repair. A fake signed commit with a configured signature program executed that program during observation; collection now disables signature display explicitly. An authenticated HTTPS origin included its user information in the canonical repository ID; URL parsing now discards user information, normalizes default transport ports, and preserves nondefault ports. Both probes use disposable repositories and synthetic credentials.
+
+Eighteen independent disposable mutations were killed by regression assertions: credential stripping, default-port normalization, custom-port preservation, signature-helper suppression, parent union, incoming and retained child facts, legacy supersession insertion and lookup, superseded raw-only exclusion, cross-source and within-source identity merging, empty filter normalization, finite total validation, both identity export exclusions, public error redaction, and historical test applicability. Results were generated at `/tmp/tokes-issue1-round2-mutations.json`.
+
+Validation: 79 Python tests and both Node suites pass; whitespace checks pass. The third panel reviews the full accumulated implementation.

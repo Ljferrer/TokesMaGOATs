@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-PARSER_VERSION = 'engineering-evidence-v2'
+PARSER_VERSION = 'engineering-evidence-v4'
 UTC = dt.timezone.utc
 
 
@@ -34,6 +34,8 @@ def init(db):
       source TEXT PRIMARY KEY, stamp TEXT, observed_at TEXT, body TEXT);
     CREATE TABLE IF NOT EXISTS legacy_origins (
       event_id TEXT, source TEXT, PRIMARY KEY(event_id,source));
+    CREATE TABLE IF NOT EXISTS superseded_legacy (
+      event_id TEXT PRIMARY KEY, source TEXT, observed_at TEXT);
     ''')
 
 
@@ -114,6 +116,19 @@ def claude_identity(path, row):
     return f'Claude Code:{session}', None
 
 
+def merge_identity(target, incoming):
+    # Missing child metadata in a copied record is not evidence of a root.
+    parents = set(target.get('parent_candidates', []))
+    parents.update(p for p in (target['parent'], incoming['parent']) if p)
+    target['child'] = target['child'] or incoming['child'] or bool(parents)
+    target['parent'] = next(iter(parents)) if len(parents) == 1 else None
+    target['identity_uncertain'] |= incoming['identity_uncertain'] or len(parents) > 1
+    if len(parents) > 1:
+        target['parent_candidates'] = sorted(parents)
+    if 'span_basis' in incoming:
+        target['span_basis'] = 'estimated child observation span' if target['child'] else incoming['span_basis']
+
+
 def collect_activity(path, provider, rows):
     """Retain timestamps/identity edges only, with roots bounded by observed turns."""
     agents, points, spans, open_turns, terminal = {}, defaultdict(set), defaultdict(list), {}, set()
@@ -134,7 +149,9 @@ def collect_activity(path, provider, rows):
             identity = 'Codex:' + (payload.get('thread_id') or session)
             is_child = child and identity == 'Codex:' + session
             edge = parent if is_child else None
-        agent = agents.setdefault(identity, dict(id=identity, provider=provider, session=identity[6:] if provider == 'Codex' else session, parent=edge, child=is_child, missing_terminal=False, identity_uncertain=identity.endswith(':child:unknown'), responses=[], request_observed=False))
+        metadata = dict(id=identity, provider=provider, session=identity[6:] if provider == 'Codex' else session, parent=edge, child=is_child, missing_terminal=False, identity_uncertain=identity.endswith(':child:unknown'), responses=[], request_observed=False)
+        agent = agents.setdefault(identity, metadata)
+        merge_identity(agent, metadata)
         if not row.get('timestamp'):
             continue
         try:
@@ -236,6 +253,7 @@ def accounting(db, filters, timezone, cutoff=None):
     events = selected_events(db, filters, zone, cutoff)
     activity_events = selected_events(db, {k:v for k,v in filters.items() if k not in ('start','end')}, zone, cutoff)
     ledger_ids = {row[0] for row in db.execute('SELECT id FROM events')}
+    superseded = {row[0] for row in db.execute('SELECT event_id FROM superseded_legacy')}
     provenance, available = defaultdict(list), {}
     raw_only = {}
     for row in db.execute('SELECT * FROM response_sources'):
@@ -249,7 +267,7 @@ def accounting(db, filters, timezone, cutoff=None):
                     granularity=granularity, available=available[source], source_hash=source_hash, parser=parser, observed_at=observed)
         if key in activity_events:
             provenance[key].append(item)
-        elif available[source] and key not in ledger_ids:
+        elif available[source] and key not in ledger_ids and key not in superseded:
             raw_only.setdefault(key, []).append(item)
     for key in provenance:
         # A copied Claude response may lose its nested child path. Prefer its
@@ -302,6 +320,7 @@ def activity(db, filters, timezone, events, provenance, cutoff):
             if filters.get('projects') and topics.get((a['provider'], a['session']), 'Unassigned') not in filters['projects']:
                 continue
             target = agents.setdefault(a['id'], dict(a, points=set(), spans=[], responses=[]))
+            merge_identity(target, a)
             target['points'].update(a['points']); target['spans'].extend(a['spans'])
             target['responses'].extend(a.get('responses', []))
             target['missing_terminal'] |= a['missing_terminal']

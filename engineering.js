@@ -27,7 +27,7 @@ function renderEngineering() {
     for(const value of [scenario,...['minimum','maximum','median','average'].map(k=>engineeringNumber(s[k],'×')),engineeringNumber(s.total_estimated_hours,' h')])row.append(engineeringText('td',value));
     $('engineeringStats').append(row);
   }
-  $('engineeringFullDays').textContent=`Full days only: ${full.assessed_dates}/${full.eligible_dates} assessed; central average ${engineeringNumber(full.scenarios.central.average,'×')}. The current local date is partial. Incomplete period statistics remain unknown. Known estimated hours include assessed items on non-token and partly assessed dates; active-date ratios use only D.`;
+  $('engineeringFullDays').textContent=`Full days only: ${full.assessed_dates}/${full.eligible_dates} assessed; central average ${engineeringNumber(full.scenarios.central.average,'×')}. The current local date is partial. Incomplete period statistics remain unknown. Known estimated hours include assessed items on non-token and partly assessed dates; daily ratios use token-active dates.`;
   const peak=(rows,value)=>rows.reduce((best,row)=>value(row)>value(best)?row:best,rows[0]);
   const usage=Object.entries(e.usage.days).map(([date,u])=>({date,total:u.total}));
   const deliveries=e.days.filter(d=>d.status==='assessed');
@@ -65,10 +65,10 @@ function engineeringDay(day,e,hours) {
       local.children[1].style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';
     }else local.append(engineeringText('p','Private scope and evidence hidden. Turn privacy off to inspect.'));
     details.append(local);
-    for(const review of item.quality)details.append(engineeringText('p',`Sampled quality ${review.quality_score??'Unknown'}/100 · ${review.confidence} confidence · ${review.final_day_scope?'final-day revision inspected':'historical or partial revision scope; later fixes may exist'} · tests: ${review.tests.map(t=>t.classification+': '+t.result).join(', ')||'no evidence'}`));
+    for(const review of item.quality)details.append(engineeringText('p',`Sampled quality ${review.quality_score??'Unknown'}/100 · ${review.confidence} confidence · ${review.final_day_scope?'final-day revision inspected':'historical or partial revision scope; later fixes may exist'} · tests: ${review.tests.map(t=>t.classification+': '+t.result+' · '+t.date+' · '+(t.applies_to_delivered?'applies to delivered code':'does not apply to delivered code')).join(', ')||'no evidence'}`));
   }
   const refs=document.createElement('details');refs.dataset.snapshotIgnore='';refs.append(engineeringText('summary','Date review and integration evidence (local only)'));
-  if(!preferences.privacy){const pre=engineeringText('pre',JSON.stringify({review:day.review,integrations:day.integrations,deployments:day.deployments,unknown_items:day.unknown_items,unmapped_projects:day.unmapped_projects},null,2));pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';refs.append(pre)}
+  if(!preferences.privacy){const pre=engineeringText('pre',JSON.stringify({review:day.review,integrations:day.integrations,deployments:day.deployments,agents:a?.identities,unknown_items:day.unknown_items,unmapped_projects:day.unmapped_projects},null,2));pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';refs.append(pre)}
   else refs.append(engineeringText('p','Evidence labels hidden in privacy mode.'));
   details.append(refs);return details;
 }
@@ -84,7 +84,7 @@ function engineeringDownload(text,name,type) {
   $('engineeringStatus').replaceChildren(link);link.click();
 }
 function bindEngineering() {
-  const action=fn=>async()=>{try{await fn()}catch(error){$('engineeringStatus').textContent=error.message;$('status').textContent=error.message}};
+  const action=fn=>async()=>{try{await fn()}catch(error){$('engineeringStatus').textContent=error.message;$('status').textContent='Engineering action failed. Private details are in the local evidence editor.'}};
   $('engineeringHours').onchange=$('engineeringPeriod').onchange=renderEngineering;
   $('engineeringEdit').onclick=action(async()=>{
     const response=await fetch('/api/engineering/assessment');if(!response.ok)throw Error('Cannot load local assessments');
