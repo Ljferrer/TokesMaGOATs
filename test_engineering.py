@@ -1,5 +1,7 @@
 import copy
+import csv
 import datetime as dt
+import io
 import json
 import os
 from pathlib import Path
@@ -219,6 +221,12 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(snap['repository'],'github.com/example/repo');self.assertEqual(len(snap['integrations']),3)
         self.assertNotIn(branch,[i['head'] for i in snap['integrations']]);self.assertIn(branch,[c['revision'] for c in snap['integrations'][-1]['commits']])
         self.assertIsNone(snap['integrations'][-1]['pr_evidence']);self.assertIsNone(snap['integrations'][-1]['deployment_evidence'])
+        self.snapshot=snap;document=self.document();merge=self.item('merge',snap['tip'],'feature.py',8)
+        document['work_items'].append(merge)
+        with self.assertRaisesRegex(ValueError,'A merge author is not implementation attribution'):
+            eng.import_assessment(self.db,document,'UTC')
+        merge['allocations'][0].update(credit='integration_review',paths=[],attribution_evidence=['review:integration'])
+        eng.import_assessment(self.db,document,'UTC')
         clone=self.root/'copy';subprocess.run(['git','clone',str(self.repo),str(clone)],check=True,capture_output=True)
         subprocess.run(['git','-C',str(clone),'remote','set-url','origin','https://github.com/example/repo.git'],check=True)
         self.config['engineering_repositories'].append(dict(path=str(clone),default_ref='refs/heads/main',project='Example'))
@@ -235,6 +243,12 @@ class EngineeringTests(unittest.TestCase):
         snap=eng.collect_repositories(self.db,self.config)[0]
         self.assertEqual(len(snap['integrations']),5)
         self.assertEqual([i['gitlinks'][0]['repeated_adoption'] for i in snap['integrations'][-3:]],[False,False,True])
+        self.snapshot=snap;document=self.document();repeat=self.item('repeat',snap['tip'],'dependency',8)
+        document['work_items'].append(repeat)
+        with self.assertRaisesRegex(ValueError,'Repeated gitlink adoption cannot receive implementation credit'):
+            eng.import_assessment(self.db,document,'UTC')
+        repeat['allocations'][0].update(credit='integration_review',paths=[],attribution_evidence=['review:integration'])
+        eng.import_assessment(self.db,document,'UTC')
 
 
 class ActivityTests(unittest.TestCase):
@@ -368,6 +382,21 @@ class ActivityTests(unittest.TestCase):
         sync(self.db,self.config);identity=self.evidence()[1]['days']['2026-01-01']['identities'][0]
         self.assertIsNone(identity['parent']);self.assertTrue(identity['identity_uncertain']);self.assertEqual(identity['parent_candidates'],['Codex:one','Codex:three','Codex:two'])
 
+    def test_conflicted_histories_preserve_all_parent_alternatives_in_both_orders(self):
+        response=self.response('r','2026-01-01T12:01:00Z');response['payload']['thread_id']='child'
+        for groups in ((('one',),('two','three')), (('one','two'),('three','four'))):
+            for index,parents in enumerate(groups):
+                rows=[dict(type='session_meta',timestamp='2026-01-01T12:00:00Z',payload=dict(id='child',source=dict(subagent=dict(thread_spawn=dict(parent_thread_id=p))))) for p in parents]
+                self.write(str(index)+'/history.jsonl',rows+[response])
+            for order in ((0,1),(1,0)):
+                with self.subTest(groups=groups,order=order):
+                    self.config['sources']=[dict(provider='Codex',path=str(self.root/'logs'/str(i))) for i in order]
+                    database=self.root/(str(len(groups[0]))+'-'+str(order[0])+'.sqlite3');sync(database,self.config)
+                    with connect(database) as db:report=eng.view(db,self.config,dict(start='2026-01-01',end='2026-01-01'))
+                    identity=report['activity']['days']['2026-01-01']['identities'][0]
+                    self.assertIsNone(identity['parent']);self.assertTrue(identity['identity_uncertain'])
+                    self.assertEqual(identity['parent_candidates'],sorted('Codex:'+p for group in groups for p in group))
+
     def test_trimmed_raw_reconcile_retains_legacy_supersession(self):
         legacy=dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=dict(input_tokens=100,output_tokens=5))))
         path=self.write('r.jsonl',[legacy]);sync(self.db,self.config)
@@ -401,6 +430,20 @@ class ActivityTests(unittest.TestCase):
             observations={};list(records(path,'Codex','local',provenance=observations));ev.save_provenance(db,path,observations)
         usage,_=self.evidence();self.assertEqual(usage['raw_only_records'],1);self.assertEqual(usage['raw_only_tokens'],35)
         self.assertEqual(usage['days']['2026-01-01']['mismatched'],15);self.assertEqual(usage['days']['2026-01-01']['total'],15)
+        with connect(self.db) as db:
+            public=eng.export_report(eng.view(db,self.config,dict(start='2026-01-01',end='2026-01-01')))
+        exported=list(csv.reader(io.StringIO(eng.csv_report(public))));metadata=json.loads(exported[0][1])
+        self.assertIn('usage',metadata);self.assertIn('activity',metadata);self.assertNotIn('days',metadata)
+        self.assertTrue({'raw_only_records','raw_only_tokens','raw_only_scope','parser_version','limitations'} <= metadata['usage'].keys())
+        self.assertTrue({'evidence_available','limitations'} <= metadata['activity'].keys())
+        self.assertEqual(metadata['usage']['raw_only_records'],1);self.assertEqual(metadata['usage']['raw_only_tokens'],35)
+        self.assertIn('All reconciled sources',metadata['usage']['raw_only_scope']);self.assertIn('lower bounds',metadata['usage']['raw_only_scope'])
+        self.assertEqual(metadata['usage']['parser_version'],ev.PARSER_VERSION)
+        self.assertEqual(metadata['usage']['limitations'],usage['limitations'])
+        self.assertEqual(metadata['activity']['limitations'],public['activity']['limitations'])
+        self.assertEqual(metadata['activity']['evidence_available'],public['activity']['evidence_available'])
+        self.assertNotIn('days',metadata['usage']);self.assertNotIn('days',metadata['activity'])
+        self.assertEqual(json.loads(exported[2][12])['total'],15)
     def test_half_open_ties_union_and_distinct_density(self):
         spans={'a':[['2026-01-01T00:00:00Z','2026-01-01T00:01:00Z'],['2026-01-01T00:00:30Z','2026-01-01T00:01:00Z']], 'b':[['2026-01-01T00:01:00Z','2026-01-01T00:02:00Z']]}
         self.assertEqual(ev.overlap(spans),1)

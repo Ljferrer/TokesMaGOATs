@@ -54,3 +54,19 @@ Two additional Git boundary probes failed before repair. A fake signed commit wi
 Eighteen independent disposable mutations were killed by regression assertions: credential stripping, default-port normalization, custom-port preservation, signature-helper suppression, parent union, incoming and retained child facts, legacy supersession insertion and lookup, superseded raw-only exclusion, cross-source and within-source identity merging, empty filter normalization, finite total validation, both identity export exclusions, public error redaction, and historical test applicability. Results were generated at `/tmp/tokes-issue1-round2-mutations.json`.
 
 Validation: 79 Python tests and both Node suites pass; whitespace checks pass. The third panel reviews the full accumulated implementation.
+
+## Round 3 — cause and consumer sweep before repair
+
+All four seats approved with three Minor findings; scope and coverage were complete. Two are small behavioral gaps in previously repaired classes, so they are being closed before the PR.
+
+- **Identity merging must preserve already-merged evidence.** The scalar-parent sweep missed an incoming history with multiple parent alternatives. Check both source orders, one conflicted history and two conflicted histories, within-source merging, daily detail, weekly counts and public redaction. Preserve the union of both candidate sets as well as scalar parents.
+- **Accounting qualifications must survive every report projection.** JSON kept global raw-only counts and caveats; CSV discarded all non-day usage/activity metadata and the dashboard did not show raw-only observations. Sweep daily/weekly UI, empty selections, PNG, CSV metadata, JSON and frozen totals. Keep global raw-only observations visibly separate from selected retained tokens; also preserve parser and activity limitations in CSV.
+- **Attribution tests must reach the import boundary.** Extend the existing merge and repeated-gitlink fixtures with otherwise valid forbidden implementation claims, require the specific rejection, and allow explicit integration/review allowances as mirror cases. Production rejection rules are unchanged.
+
+### Round 3 closure evidence
+
+The conflicted-history regression failed for a scalar parent followed by a conflicted history and for both source orders of two conflicted histories. The raw-only CSV regression failed because `usage` metadata was absent; the browser projection assertion failed on an empty raw-only display. Both behavioral repairs are now covered through their public consumers. Empty selections still display the global reconciliation scope, zero observations stay explicit, and raw-only tokens remain excluded from the 15-token retained fixture. CSV preserves non-day activity availability and limitations as well as usage metadata.
+
+Eleven disposable mutations were killed: incoming and retained parent candidate sets; CSV usage metadata, activity metadata, nested-day exclusion and top-level day exclusion; UI raw-only counts, qualification and HTML wiring; merge implementation rejection; repeated-gitlink implementation rejection. The last two prove the strengthened tests reach the existing guards rather than failing for unrelated invalid fixture data. Explicit review-only allowances pass. Results were generated at `/tmp/tokes-issue1-round3-mutations.json`.
+
+Validation: 80 Python tests and both Node suites pass. The browser independently verified Apply filters followed by JSON/CSV/PNG download, acceptance statistics, private-error isolation and editor privacy, with no console errors. No attribution policy or retained token total changed. The fourth panel reviews the full accumulated diff.

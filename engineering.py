@@ -511,7 +511,10 @@ def export_report(report, private=True):
 
 def csv_report(report):
     stream = io.StringIO(); writer = csv.writer(stream)
-    writer.writerow(['metadata_json', encoded({k:v for k,v in report.items() if k not in ('days','usage','activity')})])
+    metadata = {k:v for k,v in report.items() if k != 'days'}
+    for key in ('usage','activity'):
+        metadata[key] = {k:v for k,v in report[key].items() if k != 'days'}
+    writer.writerow(['metadata_json', encoded(metadata)])
     writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores'])
     for row in report['days']:
         writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores'])])

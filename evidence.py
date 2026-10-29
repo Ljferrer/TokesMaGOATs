@@ -118,7 +118,7 @@ def claude_identity(path, row):
 
 def merge_identity(target, incoming):
     # Missing child metadata in a copied record is not evidence of a root.
-    parents = set(target.get('parent_candidates', []))
+    parents = set(target.get('parent_candidates', [])) | set(incoming.get('parent_candidates', []))
     parents.update(p for p in (target['parent'], incoming['parent']) if p)
     target['child'] = target['child'] or incoming['child'] or bool(parents)
     target['parent'] = next(iter(parents)) if len(parents) == 1 else None

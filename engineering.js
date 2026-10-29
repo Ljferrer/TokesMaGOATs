@@ -21,6 +21,7 @@ function renderEngineering() {
   const stats=e.sensitivity[hours],full=e.full_days[hours];
   $('engineeringScope').textContent=e.delivery_scope+' '+e.repositories.length+' mapped repositories · timezone '+e.timezone;
   $('engineeringCoverage').textContent=`${stats.status} · ${stats.assessed_dates}/${stats.eligible_dates} eligible token-active dates assessed · denominator ${stats.eligible_dates} dates × ${hours} hours = ${stats.denominator_hours} hours. Report cutoff ${e.cutoff}; assessment cutoff ${e.assessment_cutoff||'none'}. Privacy ${preferences.privacy?'on':'off'}.`;
+  $('engineeringReconciliation').textContent=`Raw-only observations: ${short(e.usage.raw_only_records)} records · ${short(e.usage.raw_only_tokens)} tokens. ${e.usage.raw_only_scope}`;
   $('engineeringStats').replaceChildren();
   for(const scenario of ['low','central','high']){
     const s=stats.scenarios[scenario],row=document.createElement('tr');
