@@ -16,7 +16,7 @@ assert.match(flatten(get('engineeringDays')),/Unknown\/100/);assert.match(flatte
 // Every private string in the rendered panel lives inside snapshot-excluded nodes.
 const share=node=>node.dataset.snapshotIgnore!==undefined?'':node.textContent+' '+node.children.map(share).join(' ');
 assert.doesNotMatch(share(get('engineeringDays')),/SECRET|customer/);
-context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);assert.doesNotMatch(flatten(get('engineeringDays')),/SECRET/);
+context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);assert.doesNotMatch(flatten(get('engineeringDays')),/SECRET/);assert.equal(get('engineeringEditor').hidden,true);
 get('engineeringPeriod').value='weekly';vm.runInContext('renderEngineering()',context);
 assert.match(flatten(get('engineeringDays')),/4 assessed engineer-days/);assert.match(flatten(get('engineeringDays')),/average daily Unknown/);
 const html=fs.readFileSync('index.html','utf8');assert.match(html,/<script src="\/engineering.js"><\/script>/);

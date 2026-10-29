@@ -9,9 +9,13 @@ function engineeringNumber(value, suffix='') {
 }
 function engineeringMetricLine(value) {
   if(!value)return 'Usage evidence: N/A';
-  return `Fresh input ${value.fresh_input===null?'Unknown':short(value.fresh_input)} · cache reads ${short(value.cache_read)} · cache writes ${short(value.cache_write)} · generated output ${short(value.output)} · retained total ${short(value.total)} · raw verified ${short(value.raw_verified)} (${value.raw_reconciliation_coverage===null?'N/A':(100*value.raw_reconciliation_coverage).toFixed(1)+'%'}) · mismatched ${short(value.mismatched)} · ledger only ${short(value.ledger_only)} · ${value.unknown_counter_records} records with unknown counters · ${value.aggregate_records} completed-turn aggregates`;
+  return `Fresh input ${value.fresh_input===null?'Unknown':short(value.fresh_input)} · cache reads ${short(value.cache_read)} (${value.cache_read_share==null?'N/A':(100*value.cache_read_share).toFixed(1)+'% of total'}) · cache writes ${short(value.cache_write)} · generated output ${short(value.output)} · retained total ${short(value.total)} · raw verified ${short(value.raw_verified)} (${value.raw_reconciliation_coverage===null?'N/A':(100*value.raw_reconciliation_coverage).toFixed(1)+'%'}) · mismatched ${short(value.mismatched)} · ledger only ${short(value.ledger_only)} · ${value.unknown_counter_records} records with unknown counters · ${value.aggregate_records} completed-turn aggregates`;
+}
+function engineeringActivityLine(a) {
+  return a?`Agent evidence: ${a.roots} roots / ${a.children} children · ${a.inclusive_identities} inclusive / ${a.positive_accounting_identities} with positive accounting / ${a.zero_or_synthetic_only} zero or synthetic only · observed task-span peak ${a.task_span_peak??'N/A'} (positive view ${a.positive_task_span_peak??'N/A'}) · peak responding density 60/300/600 s: ${Object.values(a.responding_density).map(n=>n??'N/A').join(' / ')} · ${a.missing_terminal_markers} missing terminals. These are not API-call concurrency.`:'Agent evidence: N/A';
 }
 function renderEngineering() {
+  $('engineeringEditor').hidden=preferences.privacy;
   const e=data?.engineering;if(!e)return;
   const hours=['4','8','12'].includes($('engineeringHours').value)?$('engineeringHours').value:'8';
   const stats=e.sensitivity[hours],full=e.full_days[hours];
@@ -23,7 +27,7 @@ function renderEngineering() {
     for(const value of [scenario,...['minimum','maximum','median','average'].map(k=>engineeringNumber(s[k],'×')),engineeringNumber(s.total_estimated_hours,' h')])row.append(engineeringText('td',value));
     $('engineeringStats').append(row);
   }
-  $('engineeringFullDays').textContent=`Full days only: ${full.assessed_dates}/${full.eligible_dates} assessed; central average ${engineeringNumber(full.scenarios.central.average,'×')}. The current local date is partial. Incomplete period statistics remain unknown; assessed hours exclude unknown dates.`;
+  $('engineeringFullDays').textContent=`Full days only: ${full.assessed_dates}/${full.eligible_dates} assessed; central average ${engineeringNumber(full.scenarios.central.average,'×')}. The current local date is partial. Incomplete period statistics remain unknown. Known estimated hours include assessed items on non-token and partly assessed dates; active-date ratios use only D.`;
   const peak=(rows,value)=>rows.reduce((best,row)=>value(row)>value(best)?row:best,rows[0]);
   const usage=Object.entries(e.usage.days).map(([date,u])=>({date,total:u.total}));
   const deliveries=e.days.filter(d=>d.status==='assessed');
@@ -33,7 +37,9 @@ function renderEngineering() {
   if($('engineeringPeriod').value==='weekly'){
     for(const week of e.weekly){
       const s=week.scenarios.central,details=document.createElement('details');
-      details.append(engineeringText('summary',`Week ${week.date} · ${week.status} · ${engineeringNumber(s.total_estimated_hours/Number(hours),' assessed engineer-days')} · average daily ${week.complete?engineeringNumber(s.total_estimated_hours/(Number(hours)*week.eligible_dates),'×'):'Unknown'} · ${week.assessed_dates}/${week.eligible_dates} active dates assessed`));
+      details.append(engineeringText('summary',`Week ${week.date} · ${week.status} · ${engineeringNumber(s.total_estimated_hours/Number(hours),' assessed engineer-days')} · average daily ${engineeringNumber(s.average_daily_equivalent===null||s.average_daily_equivalent===undefined?null:s.average_daily_equivalent*week.comparison_hours/Number(hours),'×')} · ${week.assessed_dates}/${week.eligible_dates} active dates assessed`));
+      details.append(engineeringText('p',engineeringMetricLine(week.usage),'muted'),engineeringText('p',engineeringActivityLine(week.activity),'muted'));
+      details.append(engineeringText('p',`${week.integrations||0} integrations · ${week.deployments||0} independently evidenced deployments · sampled quality: ${(week.quality_scores||[]).map(s=>s??'Unknown').join(', ')||'N/A'}`));
       const dates=e.days.filter(d=>monday(d.date)===week.date);
       for(const day of dates)details.append(engineeringDay(day,e,hours));
       host.append(details);
@@ -45,10 +51,10 @@ function renderEngineering() {
 function engineeringDay(day,e,hours) {
   const details=document.createElement('details');
   const estimates=day.status==='assessed'?['low','central','high'].map(s=>engineeringNumber(day.hours[s]/Number(hours),'×')).join(' / '):'Unknown';
-  details.append(engineeringText('summary',`${day.date}${day.partial_day?' · partial day':''} · ${day.eligible?'token-active':'outside active-day denominator'} · ${day.status} · low / central / high ${estimates} · ${day.items.length} work items · ${day.integrations.length} integrations · ${day.unknown_items.length} unknown items`));
+  details.append(engineeringText('summary',`${day.date}${day.partial_day?' · partial day':''} · ${day.eligible?'token-active':'outside active-day denominator'} · ${day.status} · low / central / high ${estimates} · ${day.items.length} work items · ${day.integrations.length} integrations · ${day.deployments?.length||0} evidenced deployments · ${day.unknown_items.length} unknown items · ${day.unmapped_projects?.length||0} unmapped projects`));
   details.append(engineeringText('p',engineeringMetricLine(e.usage.days[day.date]),'muted'));
   const a=e.activity.days[day.date];
-  details.append(engineeringText('p',a?`Agent evidence: ${a.roots} roots / ${a.children} children · ${a.inclusive_identities} inclusive / ${a.positive_accounting_identities} with positive accounting / ${a.zero_or_synthetic_only} zero or synthetic only · observed task-span peak ${a.task_span_peak??'N/A'} (positive view ${a.positive_task_span_peak??'N/A'}) · responding density 60/300/600 s: ${Object.values(a.responding_density).map(n=>n??'N/A').join(' / ')} · ${a.missing_terminal_markers} missing terminals. These are not API-call concurrency.`:'Agent evidence: N/A','muted'));
+  details.append(engineeringText('p',engineeringActivityLine(a),'muted'));
   for(const [i,item] of day.items.entries()){
     const label=preferences.privacy?'Work item '+(i+1):item.scope;
     // Private free text is inspectable locally, but never enters a PNG snapshot.
@@ -62,7 +68,7 @@ function engineeringDay(day,e,hours) {
     for(const review of item.quality)details.append(engineeringText('p',`Sampled quality ${review.quality_score??'Unknown'}/100 · ${review.confidence} confidence · ${review.final_day_scope?'final-day revision inspected':'historical or partial revision scope; later fixes may exist'} · tests: ${review.tests.map(t=>t.classification+': '+t.result).join(', ')||'no evidence'}`));
   }
   const refs=document.createElement('details');refs.dataset.snapshotIgnore='';refs.append(engineeringText('summary','Date review and integration evidence (local only)'));
-  if(!preferences.privacy){const pre=engineeringText('pre',JSON.stringify({review:day.review,integrations:day.integrations,unknown_items:day.unknown_items},null,2));pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';refs.append(pre)}
+  if(!preferences.privacy){const pre=engineeringText('pre',JSON.stringify({review:day.review,integrations:day.integrations,deployments:day.deployments,unknown_items:day.unknown_items,unmapped_projects:day.unmapped_projects},null,2));pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';refs.append(pre)}
   else refs.append(engineeringText('p','Evidence labels hidden in privacy mode.'));
   details.append(refs);return details;
 }

@@ -1,0 +1,76 @@
+"""Exercise the actual loopback handlers, including the read-side privacy boundary."""
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+import urllib.error
+import urllib.request
+
+
+class EngineeringHTTPTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp=tempfile.TemporaryDirectory(); cls.root=Path(cls.tmp.name)
+        (cls.root/'config.json').write_text(json.dumps(dict(timezone='UTC',sources=[],snipe_results=[],snipe_search_roots=[])))
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0));cls.port=listener.getsockname()[1]
+        cls.base='http://127.0.0.1:'+str(cls.port)
+        script="""import app,sys,time
+from pathlib import Path
+from contextlib import contextmanager
+original=app.connect
+@contextmanager
+def delayed_commit(path):
+    with original(path) as db:
+        yield db
+        if db.in_transaction: time.sleep(.05)
+app.connect=delayed_commit
+app.BASE=Path(sys.argv[1])
+sys.argv=["app.py","--port",sys.argv[2]]
+app.main()
+"""
+        cls.server=subprocess.Popen([sys.executable,'-c',script,str(cls.root),str(cls.port)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(cls.base+'/api/state',timeout=.2).close();break
+            except (OSError,urllib.error.URLError):time.sleep(.03)
+        else:raise RuntimeError('Fixture server did not start')
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.terminate();cls.server.communicate(timeout=5);cls.tmp.cleanup()
+    def request(self,path,body=None,host=None,origin=None):
+        headers={}
+        if host:headers['Host']=host
+        if origin:headers['Origin']=origin
+        if body is not None:headers['Content-Type']='application/json'
+        request=urllib.request.Request(self.base+path,data=json.dumps(body).encode() if body is not None else None,headers=headers)
+        try:
+            with urllib.request.urlopen(request,timeout=5) as response:return response.status,json.load(response)
+        except urllib.error.HTTPError as error:return error.code,json.load(error)
+    def test_foreign_host_cannot_read_private_evidence(self):
+        for path in ('/api/usage','/api/engineering/assessment','/api/state'):
+            with self.subTest(path=path):self.assertEqual(self.request(path,host='attacker.example:'+str(self.port))[0],403)
+        for hostname in ('localhost','127.0.0.1'):
+            self.assertEqual(self.request('/api/engineering/assessment',host=hostname+':'+str(self.port))[0],200)
+    def test_post_scope_and_schema_validation(self):
+        self.assertEqual(self.request('/api/engineering/import',{},origin='https://foreign.example')[0],403)
+        for body in ({},[],{'filters':[],'privacy':True},{'filters':{'projects':'private'},'privacy':True},{'filters':{},'privacy':'yes'}):
+            with self.subTest(body=body):self.assertEqual(self.request('/api/engineering/export',body)[0],400)
+        self.assertEqual(self.request('/api/engineering/import',[])[0],400)
+    def test_export_is_frozen_and_public(self):
+        code,result=self.request('/api/engineering/export',{'filters':{'start':'2026-01-01','end':'2026-01-03'},'privacy':True})
+        self.assertEqual(code,200);self.assertTrue(result['report']['privacy_mode']);self.assertIn('metadata_json',result['csv'])
+        import sqlite3
+        with sqlite3.connect(self.root/'data/usage.sqlite3') as db:
+            row=db.execute('SELECT body FROM engineering_reports WHERE id=?',(result['id'],)).fetchone()
+            self.assertIsNotNone(row, 'Success must follow the durable commit')
+            frozen=row[0]
+        self.assertEqual(json.loads(frozen),result['report'])
+
+
+if __name__=='__main__':unittest.main()

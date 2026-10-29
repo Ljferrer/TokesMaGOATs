@@ -6,11 +6,13 @@ from collections import defaultdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-PARSER_VERSION = 'engineering-evidence-v1'
+PARSER_VERSION = 'engineering-evidence-v2'
 UTC = dt.timezone.utc
 
 
 def instant(value):
+    if not isinstance(value, str):
+        raise ValueError('Evidence timestamps must be offset-bearing strings')
     result = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
     if result.tzinfo is None:
         raise ValueError('Evidence timestamps must include an offset')
@@ -30,6 +32,8 @@ def init(db):
       PRIMARY KEY(event_id,source));
     CREATE TABLE IF NOT EXISTS activity_sources (
       source TEXT PRIMARY KEY, stamp TEXT, observed_at TEXT, body TEXT);
+    CREATE TABLE IF NOT EXISTS legacy_origins (
+      event_id TEXT, source TEXT, PRIMARY KEY(event_id,source));
     ''')
 
 
@@ -87,6 +91,7 @@ def save_provenance(db, path, observations, source_stamp=None):
     source_hash = digest(path)
     if stamp(path) != source_stamp:
         raise ValueError('History changed while reading; retry sync')
+    db.execute("INSERT OR IGNORE INTO legacy_origins SELECT event_id,source FROM response_sources WHERE source=? AND granularity='legacy_delta'", (str(path),))
     db.execute('DELETE FROM response_sources WHERE source=?', (str(path),))
     observed = now()
     for key, item in observations.items():
@@ -111,7 +116,7 @@ def claude_identity(path, row):
 
 def collect_activity(path, provider, rows):
     """Retain timestamps/identity edges only, with roots bounded by observed turns."""
-    agents, points, spans, open_turns = {}, defaultdict(set), defaultdict(list), {}
+    agents, points, spans, open_turns, terminal = {}, defaultdict(set), defaultdict(list), {}, set()
     session, parent, child = Path(path).stem, None, False
     for row in rows:
         payload = row.get('payload') or {}
@@ -147,13 +152,15 @@ def collect_activity(path, provider, rows):
             open_turns[identity] = timestamp
         if end and identity in open_turns:
             spans[identity].append([open_turns.pop(identity), timestamp])
+        if end:
+            terminal.add(identity)
     for identity, agent in agents.items():
         observed = sorted(points[identity])
         agent['points'] = observed
         agent['span_basis'] = 'observed root turns' if not agent['child'] else 'estimated child observation span'
         if agent['child']:
             agent['spans'] = [[observed[0], observed[-1]]] if len(observed) > 1 else []
-            agent['missing_terminal'] = identity in open_turns or bool(observed)
+            agent['missing_terminal'] = identity in open_turns or (bool(observed) and identity not in terminal)
         else:
             agent['spans'] = spans[identity]
             if identity in open_turns:
@@ -219,7 +226,7 @@ def selected_events(db, filters, zone, cutoff):
             continue
         if filters.get('projects') and project not in filters['projects']:
             continue
-        result[key] = dict(id=key, date=day, provider=provider, session=session, role=role, project=project,
+        result[key] = dict(id=key, date=day, provider=provider, session=session, role=role, child=bool(sub), project=project,
                            counters=dict(input=inp, cached=cache, cache_write=write, output=out, reasoning=reasoning), total=inp+out)
     return result
 
@@ -227,6 +234,7 @@ def selected_events(db, filters, zone, cutoff):
 def accounting(db, filters, timezone, cutoff=None):
     zone, cutoff = ZoneInfo(timezone), instant(cutoff) if cutoff else dt.datetime.now(UTC)
     events = selected_events(db, filters, zone, cutoff)
+    activity_events = selected_events(db, {k:v for k,v in filters.items() if k not in ('start','end')}, zone, cutoff)
     ledger_ids = {row[0] for row in db.execute('SELECT id FROM events')}
     provenance, available = defaultdict(list), {}
     raw_only = {}
@@ -239,12 +247,11 @@ def accounting(db, filters, timezone, cutoff=None):
                 available[source] = False
         item = dict(counters=json.loads(counters), known=json.loads(known), identity=identity, first=first, last=last,
                     granularity=granularity, available=available[source], source_hash=source_hash, parser=parser, observed_at=observed)
-        if key in events:
+        if key in activity_events:
             provenance[key].append(item)
         elif available[source] and key not in ledger_ids:
             raw_only.setdefault(key, []).append(item)
-    days = {}
-    for key, row in events.items():
+    for key in provenance:
         # A copied Claude response may lose its nested child path. Prefer its
         # specific durable child identity over the copied parent/unknown label.
         identities = {p['identity'] for p in provenance[key]}
@@ -252,13 +259,15 @@ def accounting(db, filters, timezone, cutoff=None):
         if len(specific) == 1:
             for p in provenance[key]:
                 p['identity'] = next(iter(specific))
+    days = {}
+    for key, row in events.items():
         d = days.setdefault(row['date'], dict(total=0, fresh_input=0, cache_read=0, cache_write=0, output=0, raw_verified=0, mismatched=0, ledger_only=0, unknown_counter_records=0, response_records=0, aggregate_records=0))
         c = row['counters']
         d['total'] += row['total']; d['cache_read'] += c['cached']; d['cache_write'] += c['cache_write']; d['output'] += c['output']
         fresh = c['input'] - c['cached'] - c['cache_write']
         d['fresh_input'] = None if fresh < 0 or d['fresh_input'] is None else d['fresh_input'] + fresh
         sources = [p for p in provenance[key] if p['available']]
-        complete = [p for p in sources if all(p['known'].get(k) for k in ('input', 'output'))]
+        complete = [p for p in sources if all(p['known'].get(k) for k in ('input', 'output', 'cached', 'cache_write'))]
         maxima = {k: max((p['counters'][k] for p in complete), default=0) for k in c}
         if complete and all(maxima[k] == c[k] for k in ('input', 'output', 'cached', 'cache_write')):
             d['raw_verified'] += row['total']
@@ -279,7 +288,7 @@ def accounting(db, filters, timezone, cutoff=None):
                 limitations=['Coverage is relative to retained local evidence, not every account or device.',
                              'Missing counters remain unknown; existing ledger normalization may contain zero placeholders.',
                              'Legacy deltas lack response IDs. Completed-turn aggregates have no per-response timing.',
-                             'Accounting uses the earliest observed event; later fragments establish activity only.']), events, provenance
+                             'Accounting uses the earliest observed event; later fragments establish activity only.']), activity_events, provenance
 
 
 def activity(db, filters, timezone, events, provenance, cutoff):
@@ -303,14 +312,15 @@ def activity(db, filters, timezone, events, provenance, cutoff):
     for key, row in events.items():
         for p in provenance[key]:
             identity = p['identity']
+            agents.setdefault(identity, dict(id=identity, provider=row['provider'], session=row['session'], parent=identity.split(':child:')[0] if ':child:' in identity else None, child=row['child'], missing_terminal=True, identity_uncertain=identity.endswith(':child:unknown'), points={p['first'],p['last']}, spans=[], responses=[], request_observed=False, span_basis='response observations; lifecycle unavailable'))
             selected_identities.add(identity)
-            if row['total'] > 0:
+            if row['total'] > 0 and filters.get('start','0001-01-01') <= row['date'] <= filters.get('end','9999-12-31'):
                 positive[row['date']].add(identity)
             if p['granularity'] == 'response':
                 response_identity[key] = identity
                 responding[identity].update([p['first'], p['last']])
             if p['granularity'] == 'completed_turn':
-                agents.setdefault(identity, dict(id=identity, provider=row['provider'], session=row['session'], parent=None, child=True, missing_terminal=True, identity_uncertain=False, points={p['first']}, spans=[], responses=[], request_observed=False, span_basis='aggregate; timing unavailable'))
+                agents[identity]['span_basis'] = 'aggregate; timing unavailable'
     for identity, a in list(agents.items()):
         for key, timestamp in a['responses']:
             if key in response_identity:
@@ -318,6 +328,10 @@ def activity(db, filters, timezone, events, provenance, cutoff):
         if a['responses'] and not a['request_observed'] and all(key in response_identity and response_identity[key]!=identity for key,t in a['responses']):
             del agents[identity]
     if filters.get('model') or filters.get('role'):
+        selected_identities = set().union(*positive.values()) if positive else set()
+        for identity,times in responding.items():
+            if any(filters.get('start','0001-01-01') <= instant(t).astimezone(zone).date().isoformat() <= filters.get('end','9999-12-31') for t in times):
+                selected_identities.add(identity)
         agents = {k: a for k, a in agents.items() if k in selected_identities}
     days = {}
     for identity, a in agents.items():
@@ -343,26 +357,27 @@ def activity(db, filters, timezone, events, provenance, cutoff):
         start = dt.datetime.combine(dt.date.fromisoformat(day), dt.time(), zone).astimezone(UTC)
         end = min(dt.datetime.combine(dt.date.fromisoformat(day)+dt.timedelta(days=1), dt.time(), zone).astimezone(UTC), cutoff)
         bounds = defaultdict(list)
-        day_points = {}
+        day_points = {identity:[t for t in times if start-dt.timedelta(seconds=600) < instant(t) < end] for identity,times in responding.items()}
         for identity, a in agents.items():
             for begin, finish in a['spans']:
                 left, right = max(start, instant(begin)), min(end, instant(finish))
                 if left < right:
                     bounds[identity].append([left.isoformat(), right.isoformat()])
-            day_points[identity] = [t for t in responding[identity] if start-dt.timedelta(seconds=600) < instant(t) < end]
         positive_ids = positive[day]
         result[day] = dict(roots=sum(not agents.get(i, {}).get('child', i.startswith('Codex:snipe:')) for i in identities if i in agents),
                            children=sum(agents.get(i, {}).get('child', False) for i in identities),
                            inclusive_identities=len(identities), positive_accounting_identities=len(positive_ids),
                            zero_or_synthetic_only=len(identities-positive_ids),
-                           task_span_peak=overlap(bounds) if agents else None,
-                           positive_task_span_peak=overlap({k:v for k,v in bounds.items() if k in positive_ids}) if agents else None,
+                           task_span_peak=overlap(bounds) if bounds else None,
+                           positive_task_span_peak=overlap({k:v for k,v in bounds.items() if k in positive_ids}) if any(k in positive_ids for k in bounds) else None,
                            responding_density={str(w): density(day_points, w, start.timestamp(), end.timestamp()) if any(start <= instant(t) < end for times in day_points.values() for t in times) else None for w in (60, 300, 600)},
                            missing_terminal_markers=sum(agents.get(i, {}).get('missing_terminal', False) for i in identities),
+                           positive_identity_ids=sorted(positive_ids),
                            identities=[{k:v for k,v in agents[i].items() if k not in ('points', 'spans', 'responses', 'request_observed')} for i in sorted(identities) if i in agents])
     return dict(days=result, evidence_available=bool(agents), limitations=[
         'Task-span overlap and responding-identity density are not simultaneous API-call concurrency.',
         'Child first-to-last spans and roots missing terminal markers are bounded estimates.',
         'Retained metadata survives log deletion; incomplete retention can miss agents and turns.',
         'Unknown Claude child identities are grouped and explicitly marked uncertain.',
+        'Model/role selections include identities with matching accounting or response observations; spans describe their observed tasks.',
         'Aggregate reviewer timestamps are excluded from spans and response density.'])

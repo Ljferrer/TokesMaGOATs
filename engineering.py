@@ -11,6 +11,7 @@ import re
 import statistics
 import subprocess
 from zoneinfo import ZoneInfo
+from urllib.parse import urlsplit
 
 from evidence import instant, now, UTC, accounting, activity
 
@@ -168,7 +169,7 @@ def snapshots_for(db, identifiers):
 
 
 def validate_assessment(db, document, timezone):
-    exact_keys(document, ('schema_version', 'version', 'timezone', 'cutoff', 'reviewer', 'method', 'method_version', 'approval_status', 'snapshots', 'work_items', 'excluded_integrations', 'day_reviews'))
+    exact_keys(document, ('schema_version', 'version', 'timezone', 'cutoff', 'reviewer', 'method', 'method_version', 'approval_status', 'snapshots', 'work_items', 'excluded_integrations', 'day_reviews'), ('integration_evidence',))
     require(document['schema_version'] == 1 and type(document['schema_version']) is int, 'Unsupported assessment schema')
     require(type(document['version']) is int and document['version'] > 0, 'version must be a positive integer')
     require(document['timezone'] == timezone, 'Assessment timezone must match configured timezone')
@@ -262,7 +263,7 @@ def validate_assessment(db, document, timezone):
                 exact_keys(test, ('classification', 'revision', 'date', 'applies_to_delivered', 'result', 'evidence'))
                 require(test['classification'] in ('present_only', 'contemporaneous_result_inspected', 'later_historical_snapshot_rerun'), 'Unknown test evidence classification')
                 require(any(c['revision'] == test['revision'] for i in repo['integrations'] for c in i['commits']), 'Unknown test revision')
-                dt.date.fromisoformat(test['date'])
+                require(dt.date.fromisoformat(test['date']) <= instant(now()).astimezone(ZoneInfo(timezone)).date(), 'Test evidence date cannot be in the future')
                 require(type(test['applies_to_delivered']) is bool, 'applies_to_delivered must be boolean')
                 require(test['result'] in ('not_run', 'passed', 'failed', 'unknown'), 'Unknown test result')
                 require(test['classification'] != 'present_only' or test['result'] == 'not_run', 'Test presence is not a passing result')
@@ -285,12 +286,33 @@ def validate_assessment(db, document, timezone):
         require(review['status'] in ('unreviewed', 'assessed', 'unassessable'), 'Unknown date status')
         require(day <= cutoff.astimezone(ZoneInfo(timezone)).date().isoformat(), 'Date review exceeds cutoff')
         text(review['rationale'], 'date rationale'); refs(review['evidence'], 'date evidence', review['status'] == 'assessed')
+    annotated, deployments = set(), set()
+    for annotation in array(document.get('integration_evidence', []), 'integration_evidence'):
+        exact_keys(annotation, ('repository','head','pr','deployments'))
+        key = (annotation['repository'],annotation['head'])
+        require(key in integrations and key not in annotated, 'Integration evidence must reference a unique observed integration')
+        annotated.add(key)
+        if annotation['pr'] is not None:
+            exact_keys(annotation['pr'], ('url','evidence'))
+            url = urlsplit(text(annotation['pr']['url'], 'PR URL'))
+            require(url.scheme == 'https' and bool(url.hostname) and url.username is None and url.password is None, 'PR evidence requires an HTTPS URL without credentials')
+            refs(annotation['pr']['evidence'], 'PR evidence')
+        for deployment in array(annotation['deployments'], 'deployments'):
+            exact_keys(deployment, ('id','timestamp','evidence'))
+            text(deployment['id'], 'deployment id')
+            require(deployment['id'] not in deployments, 'Duplicate deployment ID')
+            deployments.add(deployment['id'])
+            require(instant(integrations[key]['timestamp']) <= instant(deployment['timestamp']) <= cutoff, 'Deployment must follow integration and precede cutoff')
+            refs(deployment['evidence'], 'deployment evidence')
     return document
 
 
 def import_assessment(db, document, timezone):
     init(db)
-    validate_assessment(db, document, timezone)
+    try:
+        validate_assessment(db, document, timezone)
+    except (TypeError, KeyError, AttributeError, OverflowError) as error:
+        raise ValueError('Invalid assessment field shape') from error
     existing = db.execute('SELECT body FROM engineering_assessments WHERE version=?', (document['version'],)).fetchone()
     if existing:
         require(existing[0] == encoded(document), 'Versions are immutable; increment version to edit')
@@ -312,15 +334,21 @@ def statistics_for(days, hours):
     eligible = [d for d in days if d['eligible']]
     known = [d for d in eligible if d['status'] == 'assessed']
     complete = bool(eligible) and len(known) == len(eligible)
+    delivery_dates = [d for d in days if d['eligible'] or d['integrations']]
+    delivery_complete = bool(delivery_dates) and all(d['status']=='assessed' for d in delivery_dates)
     scenarios = {}
     for s in SCENARIOS:
         values = [d['hours'][s]/hours for d in known]
-        total = sum(d['hours'][s] for d in known)
+        active_total = sum(d['hours'][s] for d in known)
+        total = sum((d['hours'] if d['status']=='assessed' else d.get('known_item_hours', {})).get(s,0) or 0 for d in days)
         stats = dict(minimum=min(values) if values else None, maximum=max(values) if values else None,
-                     median=statistics.median(values) if values else None, average=total/(hours*len(eligible)) if complete else None)
-        scenarios[s] = dict(total_estimated_hours=total, assessed_date_mean=statistics.mean(values) if values else None,
+                     median=statistics.median(values) if values else None, average=active_total/(hours*len(eligible)) if complete else None)
+        scenarios[s] = dict(total_estimated_hours=total, active_date_estimated_hours=active_total,
+                            engineer_days=total/hours,
+                            average_daily_equivalent=total/(hours*len(eligible)) if delivery_complete and eligible else None,
+                            assessed_date_mean=statistics.mean(values) if values else None,
                             **{k:v if complete else None for k,v in stats.items()})
-    return dict(complete=complete, status='complete' if complete else 'partial' if eligible else 'no eligible dates',
+    return dict(complete=complete, delivery_complete=delivery_complete, status='complete' if complete and delivery_complete else 'partial' if eligible or delivery_dates else 'no eligible dates',
                 eligible_dates=len(eligible), assessed_dates=len(known), comparison_hours=hours,
                 denominator_hours=hours*len(eligible), scenarios=scenarios)
 
@@ -335,22 +363,43 @@ def view(db, config, filters, cutoff=None):
     usage, events, provenance = accounting(db, filters, zone_name, cutoff)
     agent_activity = activity(db, filters, zone_name, events, provenance, cutoff)
     delivery_filters = {k:v for k,v in filters.items() if k not in ('provider', 'model', 'role')}
-    delivery_usage, _, _ = accounting(db, delivery_filters, zone_name, cutoff)
+    delivery_usage, delivery_events, _ = accounting(db, delivery_filters, zone_name, cutoff)
     document = latest(db, approved=True)
-    repositories = snapshots_for(db, document['snapshots']) if document else {}
+    full_repositories = snapshots_for(db, document['snapshots']) if document else {}
+    repositories = full_repositories
     repositories = {k:r for k,r in repositories.items() if not filters.get('projects') or r['project'] in filters['projects']}
-    days = {day:dict(date=day, eligible=u['total']>0, partial_day=day==today, hours={s:0 for s in SCENARIOS}, items=[], integrations=[], unknown_items=[], status='unknown', review=None) for day,u in delivery_usage['days'].items()}
+    all_integrations = {(r,i['head']):i for r,s in full_repositories.items() for i in s['integrations']}
+    days = {}
     def day_row(day):
         if not filters.get('start', '0001-01-01') <= day <= filters.get('end', '9999-12-31'):
             return None
-        return days.setdefault(day, dict(date=day, eligible=False, partial_day=day==today, hours={s:0 for s in SCENARIOS}, items=[], integrations=[], unknown_items=[], status='unknown', review=None))
+        return days.setdefault(day, dict(date=day, eligible=False, partial_day=day==today, hours={s:0 for s in SCENARIOS}, items=[], integrations=[], deployments=[], unknown_items=[], unmapped_projects=[], status='unknown', review=None))
+    for day,u in delivery_usage['days'].items():
+        day_row(day)['eligible'] = u['total']>0
+    for day in agent_activity['days']:
+        day_row(day)
+    mapped_projects = {r['project'] for r in repositories.values()}
+    for event in delivery_events.values():
+        row = day_row(event['date']) if event['total']>0 else None
+        if row is not None and event['project'] not in mapped_projects and event['project'] not in row['unmapped_projects']:
+            row['unmapped_projects'].append(event['project'])
     integration_lookup = {}
     if document:
+        annotations = {(a['repository'],a['head']):a for a in document.get('integration_evidence', [])}
         for repository, snapshot in repositories.items():
             for integration in snapshot['integrations']:
                 if instant(integration['timestamp']) > min(instant(document['cutoff']), instant(cutoff)):
                     continue
-                key = (repository, integration['head']); integration_lookup[key] = integration
+                key = (repository, integration['head'])
+                annotation = annotations.get(key)
+                integration = dict(integration, pr_evidence=annotation['pr'] if annotation else None,
+                                   delivery_kind='pr_merge' if annotation and annotation['pr'] else integration['kind'])
+                integration_lookup[key] = integration
+                for deployment in annotation['deployments'] if annotation else []:
+                    if instant(deployment['timestamp']) <= instant(cutoff):
+                        deployed = day_row(instant(deployment['timestamp']).astimezone(zone).date().isoformat())
+                        if deployed is not None:
+                            deployed['deployments'].append(dict(deployment,repository=repository,head=integration['head']))
                 day = instant(integration['timestamp']).astimezone(zone).date().isoformat()
                 row = day_row(day)
                 if row is not None:
@@ -362,8 +411,6 @@ def view(db, config, filters, cutoff=None):
             all_links = [(i['repository'], i['head']) for i in item['integrations']]
             if not any(k in integration_lookup for k in all_links):
                 continue
-            full_repositories = snapshots_for(db, document['snapshots'])
-            all_integrations = {(r,i['head']):i for r,s in full_repositories.items() for i in s['integrations']}
             date = min(instant(all_integrations[k]['timestamp']) for k in all_links).astimezone(zone).date().isoformat()
             row = day_row(date)
             linked.update(all_links)
@@ -392,7 +439,7 @@ def view(db, config, filters, cutoff=None):
                     row['unknown_items'].append(i['repository']+':'+i['head'])
             day_end = dt.datetime.combine(dt.date.fromisoformat(date)+dt.timedelta(days=1), dt.time(), zone).astimezone(UTC)
             coverage_end = min(day_end, instant(cutoff))
-            if repositories and row['review'] and row['review']['status']=='assessed' and not row['unknown_items'] and instant(document['cutoff']) >= coverage_end:
+            if repositories and row['review'] and row['review']['status']=='assessed' and not row['unknown_items'] and not row['unmapped_projects'] and instant(document['cutoff']) >= coverage_end:
                 row['status']='assessed'
     ordered = [days[d] for d in sorted(days)]
     for row in ordered:
@@ -406,9 +453,16 @@ def view(db, config, filters, cutoff=None):
     weekly = []
     for week, rows in weeks.items():
         stats = statistics_for(rows, 8)
-        for scenario in stats['scenarios'].values():
-            scenario['engineer_days'] = scenario['total_estimated_hours']/8
-        weekly.append(dict(date=week, **stats))
+        usage_rows = [usage['days'][row['date']] for row in rows if row['date'] in usage['days']]
+        usage_week = {k:sum(r[k] for r in usage_rows) if all(r[k] is not None for r in usage_rows) else None for k in ('total','fresh_input','cache_read','cache_write','output','raw_verified','mismatched','ledger_only','unknown_counter_records','response_records','aggregate_records')}
+        usage_week['raw_reconciliation_coverage'] = usage_week['raw_verified']/usage_week['total'] if usage_week['total'] else None
+        usage_week['cache_read_share'] = usage_week['cache_read']/usage_week['total'] if usage_week['total'] else None
+        activity_rows = [agent_activity['days'][r['date']] for r in rows if r['date'] in agent_activity['days']]
+        identities = {a['id']:a for r in activity_rows for a in r['identities']}
+        positive_ids = {i for r in activity_rows for i in r['positive_identity_ids']}
+        peak = lambda key: max((r[key] for r in activity_rows if r[key] is not None), default=None)
+        activity_week = dict(roots=sum(not a['child'] for a in identities.values()),children=sum(a['child'] for a in identities.values()),inclusive_identities=len(identities),positive_accounting_identities=len(positive_ids),zero_or_synthetic_only=len(set(identities)-positive_ids),task_span_peak=peak('task_span_peak'),positive_task_span_peak=peak('positive_task_span_peak'),missing_terminal_markers=sum(a['missing_terminal'] for a in identities.values()),responding_density={str(w):max((r['responding_density'][str(w)] for r in activity_rows if r['responding_density'][str(w)] is not None),default=None) for w in (60,300,600)}) if activity_rows else None
+        weekly.append(dict(date=week, usage=usage_week, activity=activity_week, integrations=sum(len(r['integrations']) for r in rows), deployments=sum(len(r['deployments']) for r in rows), quality_scores=[q['quality_score'] for r in rows for item in r['items'] for q in item['quality']], **stats))
     return dict(label='xEngineer — estimated delivery equivalent', baseline=BASELINE, disclaimer=DISCLAIMER,
                 selection=filters,
                 cutoff=cutoff, assessment_cutoff=document['cutoff'] if document else None, timezone=zone_name,
@@ -433,16 +487,16 @@ def export_report(report, private=True):
     result['selection'] = {k:v for k,v in report['selection'].items() if k != 'projects'}
     result['selection']['project_count'] = len(report['selection'].get('projects', []))
     result['evidence_detail'] = 'References, scope text, source paths/hashes, identities and repository revisions omitted from share exports. Use explicit local assessment export for editing.'
-    result['days'] = [{k:row[k] for k in ('date','eligible','partial_day','hours','status')} | dict(unknown_items=len(row['unknown_items']), work_items=len(row['items']), integrations=len(row['integrations']), quality_scores=[q['quality_score'] for item in row['items'] for q in item['quality']]) for row in report['days']]
+    result['days'] = [{k:row[k] for k in ('date','eligible','partial_day','hours','status')} | dict(unknown_items=len(row['unknown_items']), unmapped_projects=len(row['unmapped_projects']), work_items=len(row['items']), integrations=len(row['integrations']), deployments=len(row['deployments']), quality_scores=[q['quality_score'] for item in row['items'] for q in item['quality']]) for row in report['days']]
     result['usage'] = report['usage']
-    result['activity'] = dict(report['activity'], days={d:{k:v for k,v in row.items() if k!='identities'} for d,row in report['activity']['days'].items()})
+    result['activity'] = dict(report['activity'], days={d:{k:v for k,v in row.items() if k not in ('identities','positive_identity_ids')} for d,row in report['activity']['days'].items()})
     return result
 
 
 def csv_report(report):
     stream = io.StringIO(); writer = csv.writer(stream)
     writer.writerow(['metadata_json', encoded({k:v for k,v in report.items() if k not in ('days','usage','activity')})])
-    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','work_items','integrations','usage_json','activity_json','quality_scores'])
+    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores'])
     for row in report['days']:
-        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['work_items'],row['integrations'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores'])])
+        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores'])])
     return stream.getvalue()

@@ -31,12 +31,12 @@
 <div class="panelhead"><h2>xEngineer — estimated delivery equivalent</h2><label>Comparison day <select id="engineeringHours"><option value="4">4 hours</option><option value="8" selected>8 hours</option><option value="12">12 hours</option></select></label></div>
 <p>Under the selected conventional-effort assumptions and comparison day; not a measured causal productivity multiplier.</p>
 <p class="muted" id="engineeringScope"></p><p class="muted" id="engineeringCoverage"></p>
-<div style="overflow-x:auto"><table><thead><tr><th>Scenario</th><th>Min</th><th>Max</th><th>Median</th><th>Average</th><th>Assessed hours</th></tr></thead><tbody id="engineeringStats"></tbody></table></div>
+<div style="overflow-x:auto"><table><thead><tr><th>Scenario</th><th>Min</th><th>Max</th><th>Median</th><th>Average</th><th>Known estimated hours</th></tr></thead><tbody id="engineeringStats"></tbody></table></div>
 <p id="engineeringFullDays" class="muted"></p><p id="engineeringPeaks"></p>
 <div data-snapshot-ignore><label>View <select id="engineeringPeriod"><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label> <button id="engineeringJSON">Export JSON</button> <button id="engineeringCSV">Export CSV</button></div>
 <p class="muted">Exports include assumptions, cutoffs, coverage and privacy mode. Free-text evidence, paths, identities and revisions are omitted from share exports. Exporting freezes a new report from the current ledger.</p>
 <div id="engineeringDays"></div>
-<details data-snapshot-ignore id="engineeringEditor"><summary>Local assessments and evidence</summary>
+<details data-snapshot-ignore id="engineeringEditor"><summary>Local assessments and evidence</summary><p><a href="/engineering-guide" target="_blank" rel="noopener">Assessment schema and workflow guide</a></p>
 <p>Configure engineering_repositories (path, default_ref and project) and engineering_personal_emails in config.json, then observe local Git refs. This does not fetch or contact a service. Load the next assessment version to edit JSON, or import a locally produced review. Set approval_status to approved after reviewing the scope and assumptions. Earlier versions remain immutable.</p>
 <button id="engineeringCollect">Observe configured Git refs</button> <button id="engineeringEdit">Load next assessment version</button> <button id="engineeringLocalExport">Save local assessment JSON</button>
 <p><label>Import local review JSON <input id="engineeringFile" type="file" accept="application/json,.json"></label></p>

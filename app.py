@@ -164,6 +164,19 @@ def records(path, provider, account, auditors=None, provenance=None):
             yield row + ('auditor' if session in auditors else 'subagent' if subagent else 'main',)
 
 
+def legacy_source_ids(db, path):
+    """Recover base-ledger identities even when a reconciliation replaced raw evidence."""
+    keys = {key for (key,) in db.execute('SELECT event_id FROM legacy_origins WHERE source=?', (str(path),))}
+    keys.update(key for (key,) in db.execute("SELECT event_id FROM response_sources WHERE source=? AND granularity='legacy_delta'", (str(path),)))
+    for x in json_lines(path):
+        p = x.get('payload') or {}
+        total = (p.get('info') or {}).get('total_token_usage')
+        if p.get('type') == 'token_count' and total and x.get('timestamp'):
+            key = hashlib.sha256(json.dumps([x['timestamp'], total], sort_keys=True).encode()).hexdigest()
+            keys.add('Codex:' + key)
+    return keys
+
+
 def sync(db_path, config):
     with LOCK, connect(db_path) as db:
         report = []
@@ -198,11 +211,12 @@ def sync(db_path, config):
                     activity = evidence.collect_activity(path, source['provider'], json_lines(path))
                     source_stamp = f'{st.st_mtime_ns}:{st.st_size}'
                     if any(p['granularity'] == 'response' for p in provenance.values()):
-                        legacy_ids = [key for (key,) in db.execute("SELECT event_id FROM response_sources WHERE source=? AND granularity='legacy_delta'", (str(path),))]
+                        legacy_ids = legacy_source_ids(db, path) if source['provider']=='Codex' else []
                         for key in legacy_ids:
                             db.execute('DELETE FROM events WHERE id=?', (key,))
                             db.execute('DELETE FROM event_roles WHERE id=?', (key,))
                             db.execute('DELETE FROM response_sources WHERE event_id=?', (key,))
+                            db.execute('DELETE FROM legacy_origins WHERE event_id=?', (key,))
                     evidence.save_provenance(db, path, provenance, source_stamp)
                     db.execute('INSERT OR REPLACE INTO activity_sources VALUES (?,?,?,?)', (str(path), source_stamp, evidence.now(), json.dumps(activity)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?)', (str(path), stamp))
@@ -441,6 +455,9 @@ def main():
             self.wfile.write(body)
 
         def do_GET(self):
+            if self.headers.get('Host') not in (f'127.0.0.1:{args.port}', f'localhost:{args.port}'):
+                self.send(403, b'{}')
+                return
             if urlsplit(self.path).path == '/api/usage':
                 try:
                     query=parse_qs(urlsplit(self.path).query)
@@ -456,6 +473,8 @@ def main():
             elif self.path == '/api/engineering/assessment':
                 with connect(db_path) as db:
                     self.send(200, json.dumps(dict(assessment=engineering.template(db, config.get('timezone','America/Los_Angeles')), snapshots=[dict(id=i, **json.loads(body)) for i,body in db.execute('SELECT id,body FROM repository_snapshots ORDER BY observed_at DESC')])).encode())
+            elif self.path == '/engineering-guide':
+                self.send(200, (BASE / 'docs' / 'engineering-evidence.md').read_bytes(), 'text/plain; charset=utf-8')
             elif self.path in ('/share.js', '/engineering.js', '/vendor/html-to-image.js'):
                 self.send(200, (BASE / self.path.lstrip('/')).read_bytes(), 'application/javascript; charset=utf-8')
             elif self.path == '/':
@@ -483,17 +502,26 @@ def main():
                         document = json.loads(self.rfile.read(length))
                         with LOCK, connect(db_path) as db:
                             if self.path.endswith('/export'):
-                                filters = document.get('filters', {})
+                                engineering.exact_keys(document, ('filters','privacy'))
+                                filters = document['filters']
+                                engineering.exact_keys(filters, (), ('start','end','provider','model','role','compare','projects'))
+                                for key,value in filters.items():
+                                    if key == 'projects':
+                                        engineering.refs(value, 'projects', False)
+                                    else:
+                                        engineering.text(value, key)
+                                engineering.require(type(document['privacy']) is bool, 'privacy must be boolean')
                                 today = dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
                                 filters.update(validated_range(filters, today))
                                 report = engineering.export_report(engineering.view(db, config, filters), bool(document.get('privacy', True)))
                                 body = engineering.encoded(report)
                                 identifier = hashlib.sha256(body.encode()).hexdigest()
                                 db.execute('INSERT OR IGNORE INTO engineering_reports VALUES (?,?,?)', (identifier,report['cutoff'],body))
-                                self.send(200, json.dumps({'id':identifier,'report':report,'csv':engineering.csv_report(report)}).encode())
+                                response = {'id':identifier,'report':report,'csv':engineering.csv_report(report)}
                             else:
                                 version = engineering.import_assessment(db, document, config.get('timezone','America/Los_Angeles'))
-                                self.send(200, json.dumps({'version':version}).encode())
+                                response = {'version':version}
+                        self.send(200, json.dumps(response).encode())
                 except (ValueError, TypeError, KeyError, OverflowError) as error:
                     self.send(400, json.dumps({'error':str(error)}).encode())
             else:

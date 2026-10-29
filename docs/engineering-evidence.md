@@ -26,7 +26,7 @@ There are no automatic reviewers, model/API calls, uploads or transcript exports
 
 ## Assessment contract (schema version 1)
 
-A document has `schema_version`, monotonically increasing `version`, configured `timezone`, offset-bearing `cutoff`, `reviewer`, `method`, `method_version`, `approval_status` (`proposed` or `approved`), and arrays `snapshots`, `work_items`, `excluded_integrations`, `day_reviews`. Snapshots must already exist locally and have been observed at or after the assessment cutoff. All references use exact collected revisions; imports cannot nominate arbitrary paths to execute Git against.
+A document has `schema_version`, monotonically increasing `version`, configured `timezone`, offset-bearing `cutoff`, `reviewer`, `method`, `method_version`, `approval_status` (`proposed` or `approved`), and arrays `snapshots`, `work_items`, `excluded_integrations`, `day_reviews`. Optional `integration_evidence` carries explicitly reviewed PR/deployment references. Snapshots must already exist locally and have been observed at or after the assessment cutoff. All references use exact collected revisions; imports cannot nominate arbitrary paths to execute Git against.
 
 Each work item contains:
 
@@ -71,7 +71,7 @@ Dates after the assessed cutoff remain unknown. The current local date is partia
 
 For every positive-token local date in the independent delivery date/project scope, sum the incremental conventional hours of items first integrated that day. Divide by 4, 8 or 12 comparison hours. Reviewed zeros stay in the denominator. Only a fully assessed period has minimum, maximum, median and full-period average; otherwise these are null, with assessed/eligible counts and known-item evidence. `assessed_date_mean` is separately labeled and never substituted for the period average.
 
-For `[8,24,0]` central hours, the 8-hour view is `[1,3,0]×`: min 0, max 3, median 1, average 4/3, total 32 hours. Weekly assessed engineer-days are total assessed hours / comparison hours; the average daily equivalent also divides by eligible active dates. Delivery on dates without tokens remains inspectable outside the active-day denominator.
+For `[8,24,0]` central hours, the 8-hour view is `[1,3,0]×`: min 0, max 3, median 1, average 4/3, total 32 hours. Known estimated hours include all assessed items, including delivery on non-token dates and known items on partly assessed dates. Weekly assessed engineer-days divide that total by comparison hours. The separately labeled weekly average daily equivalent also divides by active-date count and remains unknown until delivery coverage is complete. Daily minimum/maximum/median/average still use only D; `active_date_estimated_hours` makes that reconciliation explicit. Activity-only dates remain visible outside D. Unmapped positive-token projects keep their dates unknown.
 
 ## Quality and test evidence
 
@@ -96,3 +96,5 @@ Activity metadata stores identities and parent links separately from sessions. C
 JSON/CSV share exports contain selections (project count without private labels), assumptions, cutoffs, coverage, partial-day status, privacy mode and numeric evidence. They always omit raw/private free text, source references/hashes, repository revisions/paths and agent identities. PNGs omit local evidence/editor controls and show the visible privacy mode. Changing aliases only changes display labels; it does not merge canonical repositories or allocate effort. Explicit **Save local assessment JSON** retains review details for editing and is labeled private.
 
 Validation: `python3 -m unittest -v`, `node test_dashboard.cjs`, and `node test_engineering_dashboard.cjs`.
+
+An optional integration annotation is `{repository, head, pr, deployments}`. `pr` is null or `{url, evidence}` with an HTTPS PR URL and explicit evidence references. It labels the delivery as a PR integration while retaining Git topology (`merge`/`direct_commit`); no PR is guessed from a subject. `deployments` contains `{id, timestamp, evidence}` objects with unique IDs and offset-bearing timestamps between integration and cutoff. Independently evidenced deployments appear on their observed dates and never create another effort credit. Weekly views aggregate token categories, reconciliation coverage, distinct identities, observed peaks, integrations, deployments and sampled quality; daily drilldowns retain the evidence.

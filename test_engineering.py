@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app import connect, event, records, sync
+from app import connect, event, records, sync, summary
 import engineering as eng
 import evidence as ev
 
@@ -59,6 +59,24 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(result['sensitivity']['4']['scenarios']['central']['average'],8/3)
         self.assertAlmostEqual(result['sensitivity']['12']['scenarios']['central']['average'],8/9)
         self.assertEqual(result['weekly'][0]['scenarios']['central']['engineer_days'],4)
+    def test_unmapped_project_keeps_scope_unknown(self):
+        self.db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',event('unmapped','2026-01-03T14:00:00Z','Codex','local','unmapped','model',False,dict(input_tokens=1,output_tokens=0)))
+        eng.import_assessment(self.db,self.doc,'UTC')
+        result=self.view();self.assertFalse(result['sensitivity']['8']['complete'])
+        self.assertEqual(result['days'][-1]['unmapped_projects'],['Unassigned'])
+        self.assertTrue(self.view(projects=['Example'])['sensitivity']['8']['complete'])
+    def test_non_token_delivery_contributes_to_total_and_weekly_output(self):
+        self.db.execute("DELETE FROM events WHERE id='Codex:03'")
+        third=self.commit('weekend.py','weekend=1\n','2026-01-03T12:00:00Z')
+        self.snapshot=eng.collect_repositories(self.db,self.config)[0];self.doc['snapshots']=[self.snapshot['id']]
+        self.doc['work_items'].append(self.item('weekend',third,'weekend.py',8))
+        eng.import_assessment(self.db,self.doc,'UTC');result=self.view()
+        stats=result['sensitivity']['8'];c=stats['scenarios']['central']
+        self.assertEqual(c['total_estimated_hours'],40);self.assertEqual(c['active_date_estimated_hours'],32)
+        self.assertEqual(c['average'],2);self.assertEqual(stats['eligible_dates'],2)
+        weekly=result['weekly'][0]['scenarios']['central'];self.assertEqual(weekly['engineer_days'],5)
+        self.assertEqual(weekly['average_daily_equivalent'],2.5)
+
     def test_unknown_date_is_not_zero_or_dropped(self):
         self.doc['day_reviews'].pop();eng.import_assessment(self.db,self.doc,'UTC');result=self.view()
         s=result['sensitivity']['8']; self.assertEqual((s['eligible_dates'],s['assessed_dates']),(3,2))
@@ -133,6 +151,19 @@ class EngineeringTests(unittest.TestCase):
         self.doc['excluded_integrations']=[dict(repository=self.snapshot['repository'],head=third,reason='Other-author follow-up; no personal implementation credit',evidence=['fix:revision'])]
         eng.import_assessment(self.db,self.doc,'UTC');q=self.view()['days'][1]['items'][0]['quality'][0]
         self.assertFalse(q['final_day_scope']);self.assertEqual(q['final_day_head'],third)
+    def test_explicit_pr_and_deployment_evidence_does_not_duplicate_effort(self):
+        self.doc['integration_evidence']=[dict(repository=self.snapshot['repository'],head=self.second,pr=dict(url='https://github.com/example/repo/pull/1',evidence=['local:PR metadata']),deployments=[dict(id='deploy-1',timestamp='2026-01-03T16:00:00Z',evidence=['local:deployment record'])])]
+        eng.import_assessment(self.db,self.doc,'UTC');result=self.view()
+        self.assertEqual(result['days'][1]['integrations'][0]['delivery_kind'],'pr_merge')
+        self.assertEqual(len(result['days'][2]['deployments']),1);self.assertEqual(result['days'][2]['hours']['central'],0)
+        self.assertEqual(result['weekly'][0]['deployments'],1);self.assertEqual(result['weekly'][0]['usage']['total'],300)
+        self.doc['version']=2;self.doc['integration_evidence'][0]['deployments'][0]['timestamp']='2026-01-01T12:00:00Z'
+        with self.assertRaisesRegex(ValueError,'Deployment'):eng.import_assessment(self.db,self.doc,'UTC')
+    def test_import_rejects_wrong_timestamp_and_nested_shapes(self):
+        for key,value in [('cutoff',123),('work_items',[[]]),('snapshots',[{}])]:
+            bad=copy.deepcopy(self.doc);bad[key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):eng.import_assessment(self.db,bad,'UTC')
+
     def test_share_exports_do_not_leak_private_evidence(self):
         self.doc['work_items'][0]['scope']='SECRET/customer';self.doc['work_items'][0]['effort']['evidence']=['SECRET/prompt']
         eng.import_assessment(self.db,self.doc,'UTC');report=self.view(projects=['Example'])
@@ -197,6 +228,63 @@ class ActivityTests(unittest.TestCase):
         self.write('r.jsonl',[legacy,self.response('detailed','2026-01-01T12:00:00Z',100,5)]);sync(self.db,self.config)
         usage,_=self.evidence();self.assertEqual(usage['days']['2026-01-01']['total'],105)
         with connect(self.db) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
+
+    def test_filtered_cross_midnight_public_report_preserves_activity_and_lookback(self):
+        self.write('cross.jsonl',[dict(type='turn_context',payload=dict(model='model')),self.response('r','2026-01-01T23:59:50Z'),self.response('r','2026-01-02T00:00:10Z',out=8)])
+        sync(self.db,self.config)
+        for extra in ({},{'model':'model','role':'main'}):
+            with connect(self.db) as db:
+                report=eng.view(db,self.config,dict(start='2026-01-02',end='2026-01-02',**extra),cutoff='2026-01-03T00:00:00Z')
+            self.assertEqual(len(report['days']),1)
+            self.assertFalse(report['days'][0]['eligible']);self.assertEqual(report['usage']['days'],{})
+            self.assertEqual(report['activity']['days']['2026-01-02']['responding_density']['60'],1)
+            self.assertEqual(report['activity']['days']['2026-01-02']['positive_accounting_identities'],0)
+            self.assertIn('2026-01-02',eng.csv_report(eng.export_report(report)))
+    def test_filtered_density_keeps_other_identity_lookback(self):
+        early=self.response('early','2026-01-01T23:59:50Z');early['payload']['thread_id']='earlier'
+        later=self.response('later','2026-01-02T00:00:10Z')
+        self.write('cross.jsonl',[dict(type='turn_context',payload=dict(model='model')),early,later]);sync(self.db,self.config)
+        _,activity=self.evidence(start='2026-01-02',end='2026-01-02',model='model',role='main')
+        self.assertEqual(activity['days']['2026-01-02']['responding_density']['60'],2)
+
+    def test_activity_only_identity_survives_public_projection(self):
+        self.write('zero.jsonl',[dict(type='session_meta',timestamp='2026-01-02T12:00:00Z',payload=dict(id='synthetic'))]);sync(self.db,self.config)
+        with connect(self.db) as db:report=eng.view(db,self.config,dict(start='2026-01-02',end='2026-01-02'))
+        self.assertEqual(len(report['days']),1);self.assertFalse(report['days'][0]['eligible'])
+        self.assertEqual(report['sensitivity']['8']['eligible_dates'],0)
+    def test_base_ledger_legacy_upgrade_and_reconcile_order(self):
+        legacy=dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=dict(input_tokens=100,output_tokens=5))))
+        path=self.write('r.jsonl',[legacy])
+        with connect(self.db) as db:
+            for row in records(path,'Codex','local'):db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',row[:-1])
+        self.write('r.jsonl',[legacy,self.response('detailed','2026-01-01T12:00:00Z',100,5)])
+        # Exact raw-observation replacement used by --reconcile, before sync.
+        with connect(self.db) as db:
+            observations={};list(records(path,'Codex','local',provenance=observations));ev.save_provenance(db,path,observations)
+        sync(self.db,self.config)
+        self.assertEqual(summary(self.db,self.config)['totals']['total'],105)
+        self.assertEqual(self.evidence()[0]['days']['2026-01-01']['total'],105)
+    def test_trimmed_raw_reconcile_retains_legacy_supersession(self):
+        legacy=dict(type='event_msg',timestamp='2026-01-01T12:00:00Z',payload=dict(type='token_count',info=dict(total_token_usage=dict(input_tokens=100,output_tokens=5))))
+        path=self.write('r.jsonl',[legacy]);sync(self.db,self.config)
+        self.write('r.jsonl',[self.response('detailed','2026-01-01T12:00:00Z',100,5)])
+        with connect(self.db) as db:
+            observations={};list(records(path,'Codex','local',provenance=observations));ev.save_provenance(db,path,observations)
+        sync(self.db,self.config);self.assertEqual(summary(self.db,self.config)['totals']['total'],105)
+
+    def test_missing_cached_counter_is_not_fully_verified(self):
+        row=self.response('r','2026-01-01T12:00:00Z');del row['payload']['usage']['cached_input_tokens']
+        self.write('r.jsonl',[row]);sync(self.db,self.config)
+        day=self.evidence()[0]['days']['2026-01-01'];self.assertEqual(day['raw_verified'],0);self.assertEqual(day['unknown_counter_records'],1)
+    def test_aggregate_only_timing_is_unknown(self):
+        path=self.write('aggregate.jsonl',[])
+        with connect(self.db) as db:
+            usage=dict(input_tokens=10,cached_input_tokens=0,output_tokens=5)
+            row=event('snipe:aggregate:0','2026-01-01T12:00:00Z','Codex','local','aggregate','model',True,usage)
+            db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',row)
+            observations={};ev.record_provenance(observations,row,usage,'Codex',granularity='completed_turn');ev.save_provenance(db,path,observations)
+        day=self.evidence()[1]['days']['2026-01-01']
+        self.assertIsNone(day['task_span_peak']);self.assertIsNone(day['positive_task_span_peak']);self.assertIsNone(day['responding_density']['60'])
 
     def test_unknown_counters_are_not_verified_zero(self):
         row=self.response('missing','2026-01-01T00:00:00Z');del row['payload']['usage']['output_tokens']
