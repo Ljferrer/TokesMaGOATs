@@ -87,3 +87,11 @@ Legacy provenance now consumes original cumulative counters plus the predecessor
 Fourteen disposable mutation checks were killed: original legacy counters, predecessor handoff, current and predecessor validity, implicit-zero baseline, higher-maximum invalidation, equality handling, validity recovery at a higher maximum, rejection of lower-value evidence, both equal-maximum evidence arms, parser upgrade, and fixed-24-hour clipping against both spring and fall fixtures. Results were generated at `/tmp/tokes-issue1-round4-mutations.json`.
 
 Validation: 85 Python tests, both Node suites and whitespace checks pass. Round 5 is the final authorized panel. The remaining work after that panel is reporting its outcome and opening the PR when the requested severity threshold is met.
+
+## Round 5 — final outcome
+
+The final panel reviewed the complete diff through `10c421844f821b2983c683b255e10340c72a5702` against `9470e9d45a3e7473f646e8a99ba41828a1a730c3`. All four seats (correctness, cascading-impact, test-fidelity and security) completed and approved with high confidence. Scope was stable and coverage complete. The configured profile was `gpt-6-astra` / `medium`; the runner does not independently attest actual model identity.
+
+One Minor regression-evidence gap remains: the tests do not discriminate earliest-versus-latest integration dating for a single grouped work item spanning multiple integration dates. The reviewed implementation correctly chooses the earliest integration. This does not require a behavior change, and is disclosed as residual test coverage rather than claimed as verified. The requested only-Minor/Nit threshold is met within five panels. No additional panel or implementation change follows this final review; the final commit records audit documentation only.
+
+Final coordinator validation: 85 Python tests and both Node suites pass, with 56 targeted successful mutation checks across the repair rounds. Actual browser checks and exported artifacts cover the acceptance example, comparison-hour sensitivity, weekly output labels, applied-filter exports, unknowns/privacy/error projection and separate raw-only evidence. The final browser fixture keeps retained usage at 300 tokens while reporting 35 raw-only tokens with their global scope and lower-bound qualification.
