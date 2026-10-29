@@ -1,4 +1,5 @@
 """Compact human-input provenance, separate from token accounting and agent spans."""
+from bisect import bisect_left
 import datetime as dt
 import hashlib
 import json
@@ -19,28 +20,23 @@ def init(db):
         source TEXT PRIMARY KEY, provider TEXT, stamp TEXT, source_hash TEXT,
         observed_at TEXT, classifier_version TEXT, body TEXT)''')
     db.execute('CREATE TABLE IF NOT EXISTS human_input_aliases (alias TEXT PRIMARY KEY, identity TEXT NOT NULL)')
+    db.execute('CREATE INDEX IF NOT EXISTS human_input_aliases_identity ON human_input_aliases(identity)')
 
 
 def remember_identities(db, events):
     """A richer representation may add aliases, but cannot rename an observed input."""
-    existing = {alias:(order, identity) for order, alias, identity in db.execute(
-        'SELECT rowid,alias,identity FROM human_input_aliases')}
-    ranks = {}
-    for order, identity in existing.values():
-        ranks[identity] = min(order, ranks.get(identity, order))
     for event in deduplicate(events):
-        linked = {existing[alias][1] for alias in event['aliases'] if alias in existing}
-        identity = min(linked, key=lambda key:ranks[key]) if linked else event['id']
+        linked = set()
+        for alias in event['aliases']:
+            row = db.execute('SELECT identity FROM human_input_aliases WHERE alias=?', (alias,)).fetchone()
+            if row:
+                linked.add(row[0])
+        identity = min(linked, key=lambda key: db.execute(
+            'SELECT rowid FROM human_input_aliases WHERE identity=? ORDER BY rowid LIMIT 1', (key,)).fetchone()[0]) if linked else event['id']
         for old in linked - {identity}:
             db.execute('UPDATE human_input_aliases SET identity=? WHERE identity=?', (identity, old))
-            for alias, (order, value) in list(existing.items()):
-                if value == old:
-                    existing[alias] = (order, identity)
         for alias in event['aliases']:
-            if alias not in existing:
-                cursor = db.execute('INSERT INTO human_input_aliases VALUES (?,?)', (alias, identity))
-                existing[alias] = (cursor.lastrowid, identity)
-                ranks[identity] = min(cursor.lastrowid, ranks.get(identity, cursor.lastrowid))
+            db.execute('INSERT OR IGNORE INTO human_input_aliases VALUES (?,?)', (alias, identity))
 
 
 def mapping(value):
@@ -207,13 +203,21 @@ def collect(path, provider, rows):
                 # Pair the two native representations within their recorded turn, never independent replies by text alone.
                 fingerprint = hashlib.sha256(text.encode()).hexdigest()
                 representations.append((owner, turn, fingerprint, kind, no_message_id, index, events[-1]))
+    responses = {}
+    for owner, turn, fingerprint, kind, no_id, index, event in representations:
+        if kind == 'response_item':
+            positions, candidates = responses.setdefault((owner, turn, fingerprint), ([], []))
+            positions.append(index)
+            candidates.append(event)
     for owner, turn, fingerprint, kind, no_id, index, event in representations:
         if kind != 'event_msg' or not no_id:
             continue
-        matches = [r for r in representations if r[:3] == (owner,turn,fingerprint) and r[3] == 'response_item']
-        if matches:
-            response = min(matches,key=lambda r:abs(r[5]-index))[-1]
-            event['aliases'].extend(response['aliases'])
+        positions, candidates = responses.get((owner, turn, fingerprint), ([], []))
+        if positions:
+            insertion = bisect_left(positions, index)
+            nearest = min((i for i in (insertion-1, insertion) if 0 <= i < len(positions)),
+                          key=lambda i: (abs(positions[i]-index), positions[i]))
+            event['aliases'].extend(candidates[nearest]['aliases'])
     return dict(events=events, schema_supported=recognized, invalid_timestamp_records=invalid)
 
 

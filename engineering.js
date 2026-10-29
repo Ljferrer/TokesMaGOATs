@@ -163,17 +163,31 @@ function engineeringInputEvent(event,e) {
   if(!preferences.privacy)for(const entry of choices)if(entry.rationale)row.append(engineeringText('p','Selection rationale: '+entry.rationale,'muted'));
   return row;
 }
+const engineeringInputDates=new WeakMap();
 function engineeringInputDay(date,e) {
-  const events=(e.human_inputs?.events||[]).filter(event=>event.in_scope&&event.local_date===date);
+  const source=e.human_inputs?.events||[];
+  let byDate=engineeringInputDates.get(source);
+  if(!byDate){
+    byDate=new Map();
+    for(const event of source)if(event.in_scope){const date=event.local_date;if(!byDate.has(date))byDate.set(date,[]);byDate.get(date).push(event)}
+    engineeringInputDates.set(source,byDate);
+  }
+  const events=byDate.get(date)||[];
   const details=document.createElement('details');details.dataset.snapshotIgnore='';
   details.append(engineeringText('summary',`Input evidence · ${events.length} events`));
-  for(const event of events)details.append(engineeringInputEvent(event,e));
-  if(!events.length)details.append(engineeringText('p','No original input timestamps on this date. Timer hours may include a prior date’s carry-in window.','muted'));
+  let populated=false;
+  details.ontoggle=()=>{
+    if(!details.open||populated)return;
+    populated=true;
+    for(const event of events)details.append(engineeringInputEvent(event,e));
+    if(!events.length)details.append(engineeringText('p','No original input timestamps on this date. Timer hours may include a prior date’s carry-in window.','muted'));
+  };
   return details;
 }
 function renderEngineeringInputExceptions(e) {
   const host=$('engineeringInputExceptions');host.replaceChildren();
   const events=e.human_inputs?.events||[],entries=e.human_inputs?.selection?.entries||[];
+  engineeringInputDates.delete(events);
   engineeringInputAliases=new Map([...new Set(events.map(event=>event.provider+':'+event.session))].sort().map((key,i)=>[key,'Chat '+(i+1)]));
   const dates=new Set((e.message_timer?.days||[]).map(day=>day.date));
   const carry=events.filter(event=>event.in_scope&&!dates.has(event.local_date));

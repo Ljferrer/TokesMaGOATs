@@ -19,6 +19,23 @@ const flatten=node=>node.textContent+' '+node.children.map(flatten).join(' ');
 assert.match(flatten(get('engineeringDays')),/Unknown\/100/);assert.match(flatten(get('engineeringDays')),/SECRET\/customer/);
 // Every private string in the rendered panel lives inside snapshot-excluded nodes.
 const share=node=>node.dataset.snapshotIgnore!==undefined?'':node.textContent+' '+node.children.map(share).join(' ');
+{
+  let dateReads=0;
+  context.scalingReport={timezone:'UTC',human_inputs:{selection:{entries:[]},events:Array.from({length:2000},(_,i)=>({id:'scale-'+i,provider:'Codex',session:'scale',in_scope:true,get local_date(){dateReads++;return '2026-01-01'},timestamp:'2026-01-01T00:00:00Z',classification:'ambiguous',aliases:[]}))}};
+  const before=created.length,details=[];
+  for(let day=1;day<=10;day++)details.push(vm.runInContext(`engineeringInputDay('2026-01-${String(day).padStart(2,'0')}',scalingReport)`,context));
+  assert.ok(dateReads<=4000,'Table rows must share one date index per input array');
+  assert.equal(created.slice(before).filter(node=>node.className==='engineering-input-event').length,0,'Collapsed evidence must not construct input controls');
+  details[0].ontoggle();assert.equal(details[0].children.length,1,'A closed toggle event leaves evidence unbuilt');
+  details[0].open=true;details[0].ontoggle();
+  assert.equal(details[0].children.length,2001,'First expansion builds only this date’s inputs');
+  details[0].open=false;details[0].ontoggle();details[0].open=true;details[0].ontoggle();
+  assert.equal(details[0].children.length,2001,'Reopening does not duplicate controls');
+  details[1].open=true;details[1].ontoggle();assert.match(flatten(details[1]),/No original input timestamps/);
+  context.scalingReport.human_inputs.events=[];
+  const replaced=vm.runInContext("engineeringInputDay('2026-01-01',scalingReport)",context);
+  assert.match(flatten(replaced),/0 events/,'Replacing report inputs invalidates the date index');
+}
 assert.doesNotMatch(share(get('engineeringDays')),/SECRET|customer/);
 context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);assert.doesNotMatch(flatten(get('engineeringDays')),/SECRET/);assert.equal(get('engineeringEditor').hidden,true);
 get('engineeringPeriod').value='weekly';vm.runInContext('renderEngineering()',context);
@@ -242,7 +259,9 @@ vm.runInContext('bindEngineering()',context);
   table().inputs.date_text.value=dates[0];table().inputs.date_text.oninput();
   assert.match(table().count.textContent,/1 of 5 rows/);
   const descendants=node=>[node,...node.children.flatMap(descendants)];
-  const shownCheckbox=()=>descendants(table().body).find(node=>node.type==='checkbox');
+  const expandInputs=node=>{for(const details of descendants(node).filter(node=>node.tag==='details'&&node.ontoggle)){details.open=true;details.ontoggle()}};
+  const shownCheckbox=()=>{expandInputs(table().body);return descendants(table().body).find(node=>node.type==='checkbox')};
+  expandInputs(table().body);
   assert.equal(descendants(table().body).filter(node=>node.type==='checkbox').length,1,'Supported and known excluded events cannot be selected');
   assert.notEqual(shownCheckbox().indeterminate,true,'An unselected input is not an unresolved saved choice');
   assert.doesNotMatch(flatten(table().body),/PRIVATE_CHAT|PRIVATE reason/);
@@ -280,6 +299,7 @@ vm.runInContext('bindEngineering()',context);
   assert.equal(get('engineeringFixedValue').textContent,'1.75×');assert.deepEqual(timer.cohort.dates,dates);
   table().clear.onclick();
   const dayTwo=table().body.children.find(row=>row.children[0].textContent===dates[1]);
+  expandInputs(dayTwo);
   assert.equal(descendants(dayTwo).find(node=>node.type==='checkbox').checked,true,'Showing the hidden date restores its saved checkbox state');
 
   let downloaded;
@@ -351,6 +371,7 @@ vm.runInContext('bindEngineering()',context);
     assert.equal(descendants(get('engineeringInputExceptions')).filter(node=>node.textContent==='Remove unavailable saved choice').length,1,'Only the truly missing U entry lacks metadata; valid aliases resolve to their event');
     assert.doesNotMatch(share(get('engineeringInputExceptions')),/PRIVATE|original input event/);
     context.preferences.privacy=false;vm.runInContext('renderEngineering()',context);
+    expandInputs(table().body);
     assert.match(flatten(table().body),/PRIVATE alias rationale A-old/);assert.match(flatten(table().body),/PRIVATE alias rationale A-second/);
     assert.doesNotMatch(share(table().body),/PRIVATE/);
     context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);
@@ -391,6 +412,7 @@ vm.runInContext('bindEngineering()',context);
   for(const inScope of [true,false]){
     conflict.in_scope=inScope;server={...server,version:40,entries:[{id:'F-old',reference:ref},{id:'F-copy',reference:ref},{id:'U',reference:ref}]};await refreshSelection();
     const container=inScope?table().body:get('engineeringInputExceptions');
+    expandInputs(container);
     const conflictRow=descendants(container).find(node=>node.className==='engineering-input-event'&&flatten(node).includes('Conflicting authoritative original timestamps'));
     assert.ok(conflictRow,'Conflicted aliases retain their inspectable event inside and outside the applied scope');assert.equal(descendants(conflictRow).some(node=>node.type==='checkbox'),false,'Conflicted originals cannot be newly included');
     assert.equal(descendants(get('engineeringInputExceptions')).filter(node=>node.textContent==='Remove unavailable saved choice').length,1,'Only U has unavailable metadata; invalid aliases still identify the conflicting event');

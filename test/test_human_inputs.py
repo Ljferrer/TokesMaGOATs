@@ -348,6 +348,52 @@ class HumanInputsTests(unittest.TestCase):
         self.assertNotIn(fingerprint, '\n'.join(self.db.iterdump()))
         self.assertNotIn(fingerprint, json.dumps(report))
 
+    def test_wrapper_pairing_does_not_compare_unrelated_turns(self):
+        class Turn(str):
+            comparisons = 0
+            __hash__ = str.__hash__
+            def __eq__(self, other):
+                Turn.comparisons += 1
+                return str.__eq__(self, other)
+        rows = [codex_meta()]
+        for i in range(120):
+            turn = Turn('turn-'+str(i))
+            rows.extend([codex_start(turn), codex_input('response-'+str(i), turn=turn),
+                         dict(type='event_msg', timestamp=BASE_TIME, payload=dict(type='user_message', turn_id=turn, message=SECRET))])
+        events = human_inputs.collect('fixture.jsonl', 'Codex', rows)['events']
+        for i, event in enumerate(events[1::2]):
+            self.assertIn('Codex:response-'+str(i), event['aliases'])
+        self.assertLess(Turn.comparisons, 1200)
+
+    def test_wrapper_pairing_preserves_nearest_position_and_earlier_ties(self):
+        wrapper = dict(type='event_msg', timestamp=BASE_TIME, payload=dict(type='user_message', turn_id='turn', message=SECRET))
+        left, right = codex_input('left'), codex_input('right')
+        for records, expected in [([wrapper,left,right],'left'),([left,wrapper,right],'left'),([left,right,wrapper],'right')]:
+            with self.subTest(expected=expected, position=records.index(wrapper)):
+                events = human_inputs.collect('fixture.jsonl','Codex',[codex_meta(),codex_start(),*records])['events']
+                event = next(event for event in events if event['id'].startswith('Codex:observed:'))
+                self.assertEqual([alias for alias in event['aliases'] if not alias.startswith('Codex:observed:')], ['Codex:'+expected])
+        unmatched = dict(wrapper, payload=dict(wrapper['payload'], turn_id='unrelated'))
+        events = human_inputs.collect('fixture.jsonl','Codex',[codex_meta(),codex_start(),left,unmatched])['events']
+        self.assertEqual(len(events[-1]['aliases']), 1)
+
+    def test_alias_registration_ignores_unrelated_groups_and_empty_inputs(self):
+        self.db.executemany('INSERT INTO human_input_aliases VALUES (?,?)', [(f'a-{i}',f'identity-{i}') for i in range(2000)])
+        events = human_inputs.collect('fixture.jsonl','Codex',[codex_meta(),codex_start(),codex_input('new')])['events']
+        events[0]['aliases'] = ['a-1500','a-500','Codex:new']
+        steps = []
+        self.db.set_progress_handler(lambda: steps.append(1) or 0, 1)
+        try:
+            human_inputs.remember_identities(self.db, [])
+            self.assertEqual(len(steps), 0)
+            human_inputs.remember_identities(self.db, events)
+            self.assertLess(len(steps), 1000)
+        finally:
+            self.db.set_progress_handler(None, 0)
+        self.assertEqual(self.db.execute("SELECT identity FROM human_input_aliases WHERE alias='Codex:new'").fetchone()[0], 'identity-500')
+        self.assertEqual(self.db.execute("SELECT identity FROM human_input_aliases WHERE alias='a-1500'").fetchone()[0], 'identity-500')
+        self.assertEqual(self.db.execute("SELECT identity FROM human_input_aliases WHERE alias='a-1999'").fetchone()[0], 'identity-1999')
+
     def test_idless_wrappers_do_not_merge_repeated_replies_from_distinct_turns(self):
         rows = [codex_meta()]
         original_times = ['2026-01-01T09:00:00Z', '2026-01-01T09:03:00Z']
