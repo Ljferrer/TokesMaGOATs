@@ -13,6 +13,7 @@ from unittest.mock import patch
 from app import connect, event, records, sync, summary
 import engineering as eng
 import evidence as ev
+import human_inputs
 
 
 class EngineeringTests(unittest.TestCase):
@@ -80,7 +81,7 @@ class EngineeringTests(unittest.TestCase):
         self.assertAlmostEqual(changed['sensitivity']['4']['scenarios']['central']['average'],3.09)
         public=eng.export_report(report);rows=list(csv.reader(io.StringIO(eng.csv_report(public))))
         self.assertEqual(json.loads(rows[0][1])['day_filter'],dict(threshold=.1,comparison_hours=8,basis='central'))
-        self.assertEqual([row[-1] for row in rows[2:]],['True','False','True'])
+        self.assertEqual([row[rows[1].index('excluded_low_effort')] for row in rows[2:]],['True','False','True'])
         self.assertEqual(sum(json.loads(row[12])['total'] for row in rows[2:]),300)
         self.assertEqual(self.view()['sensitivity']['8']['eligible_dates'],3)
 
@@ -121,6 +122,43 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(report['full_days']['8']['excluded_dates'],0)
         self.assertEqual(report['full_days']['8']['eligible_dates_before_filter'],2)
         self.assertEqual(report['full_days']['8']['scenarios']['central']['average'],2)
+
+    def test_both_methods_share_assessments_cohort_and_safe_exports(self):
+        for item,hours in zip(self.doc['work_items'],[10,18]):
+            item['effort'].update(hours_low=hours/2,hours_central=hours,hours_high=hours*2)
+        eng.import_assessment(self.db,self.doc,'UTC')
+        self.db.execute('INSERT INTO session_topics VALUES (?,?,?,?,?,?)',('Claude Code','private-human-session','Example','','','fixture'))
+        inputs=[]
+        for date,hours in [('2026-01-01',1),('2026-01-02',9)]:
+            start=dt.datetime.fromisoformat(date+'T09:00:00+00:00')
+            for n in range(hours*12):
+                inputs.append(dict(type='user',uuid=date+'-'+str(n),timestamp=(start+dt.timedelta(minutes=5*n)).isoformat(),sessionId='private-human-session',
+                                   isSidechain=False,userType='external',entrypoint='cli',origin=dict(kind='human'),turnOrigin='human',
+                                   message=dict(role='user',content='PRIVATE SYNTHETIC PROMPT')))
+        path=self.root/'private-inputs.jsonl';path.write_text(''.join(json.dumps(row)+'\n' for row in inputs))
+        human_inputs.save(self.db,path,'Claude Code',inputs)
+        result=self.view(provider='Codex',projects=['Example'])
+        timer=result['message_timer'];matched=timer['matched_fixed']['8']
+        self.assertEqual(timer['cohort']['dates'],['2026-01-01','2026-01-02'])
+        self.assertEqual(matched['scenarios']['central']['average'],1.75)
+        self.assertEqual(matched['scenarios']['central']['active_date_estimated_hours'],28)
+        self.assertAlmostEqual(timer['sensitivity']['supported']['5']['scenarios']['central']['pooled'],2.8)
+        self.assertAlmostEqual(timer['sensitivity']['supported']['5']['scenarios']['central']['daily_mean'],6)
+        self.assertEqual(result['sensitivity']['8']['eligible_dates'],3)
+        self.assertEqual(result['sensitivity']['8']['scenarios']['central']['average'],28/24)
+        self.assertEqual(timer['weekly'][0]['matched_fixed']['8']['scenarios']['central']['average'],1.75)
+        self.assertEqual(timer['full_days']['matched_fixed']['8']['scenarios']['central']['average'],1.75)
+        public=eng.export_report(result);serialized=json.dumps(public);csv_text=eng.csv_report(public)
+        for secret in ['PRIVATE SYNTHETIC PROMPT','private-human-session',str(path)]:
+            self.assertNotIn(secret,serialized);self.assertNotIn(secret,csv_text)
+        csv_rows=list(csv.reader(io.StringIO(csv_text)))
+        self.assertEqual(json.loads(csv_rows[0][1])['message_timer'],public['message_timer'])
+        self.assertTrue(json.loads(csv_rows[2][-1])['in_cohort'])
+        self.assertEqual(sum(json.loads(row[12])['total'] for row in csv_rows[2:]),300)
+        # The source may disappear, but retained input metadata and its limitation survive.
+        path.unlink();retained=self.view()['message_timer']
+        self.assertAlmostEqual(retained['sensitivity']['supported']['5']['scenarios']['central']['pooled'],2.8)
+        self.assertGreater(retained['coverage']['missing_sources'],0)
     def test_unmapped_project_keeps_scope_unknown(self):
         self.db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',event('unmapped','2026-01-03T14:00:00Z','Codex','local','unmapped','model',False,dict(input_tokens=1,output_tokens=0)))
         eng.import_assessment(self.db,self.doc,'UTC')
@@ -247,10 +285,17 @@ class EngineeringTests(unittest.TestCase):
 
     def test_share_exports_do_not_leak_private_evidence(self):
         self.doc['work_items'][0]['scope']='SECRET/customer';self.doc['work_items'][0]['effort']['evidence']=['SECRET/prompt']
+        private_session='PRIVATE_SESSION_CANARY'
+        self.db.execute('UPDATE events SET session=?',(private_session,))
+        self.db.execute('UPDATE session_topics SET session=?',(private_session,))
+        self.db.execute('INSERT INTO session_topics VALUES (?,?,?,?,?,?)',('Claude Code',private_session,'Example','','','fixture'))
+        inputs=[dict(type='user',uuid='PRIVATE_INPUT_CANARY',timestamp='2026-01-01T09:00:00Z',sessionId=private_session,origin=dict(kind='human'),message=dict(role='user',content='SECRET human body'))]
+        path=self.root/'private-inputs.jsonl';path.write_text(json.dumps(inputs[0])+'\n');human_inputs.save(self.db,path,'Claude Code',inputs)
         eng.import_assessment(self.db,self.doc,'UTC');report=self.view(projects=['Example'])
+        self.assertEqual(report['human_inputs']['events'][0]['session'],private_session)
         for private in (True,False):
             shared=eng.export_report(report,private);value=json.dumps(shared)+eng.csv_report(shared)
-            for secret in ('SECRET',self.first,str(self.repo),'session','me@example.test','Example'):
+            for secret in ('SECRET',self.first,str(self.repo),private_session,'PRIVATE_INPUT_CANARY','me@example.test','Example'):
                 self.assertNotIn(secret,value)
             self.assertEqual(shared['privacy_mode'],private);self.assertEqual(shared['selection']['project_count'],1)
     def test_collector_does_not_execute_configured_signature_helpers(self):

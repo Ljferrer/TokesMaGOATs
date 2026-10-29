@@ -15,6 +15,9 @@ from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 
 from evidence import instant, now, UTC, accounting, activity
+import human_inputs
+import message_timer
+import input_selections
 
 SCENARIOS = ('low', 'central', 'high')
 DIMENSIONS = ('correctness', 'regression_protection', 'maintainability', 'operational_safeguards')
@@ -382,9 +385,18 @@ def statistics_for(days, hours):
                 denominator_hours=hours*len(eligible), scenarios=scenarios)
 
 
+def selection_version(filters):
+    value = filters.get('input_selection_version')
+    require(value is None or isinstance(value,str) and re.fullmatch(r'0|[1-9][0-9]*',value), 'Input selection version must be a nonnegative integer')
+    return int(value) if value is not None else None
+
+
 def view(db, config, filters, cutoff=None):
     day_filter = day_filter_options(filters)
+    message_timer.options(filters)
     init(db)
+    human_inputs.init(db)
+    input_selections.init(db)
     if not db.in_transaction:
         db.execute('BEGIN')
     cutoff = cutoff or now()
@@ -498,13 +510,33 @@ def view(db, config, filters, cutoff=None):
         peak = lambda key: max((r[key] for r in activity_rows if r[key] is not None), default=None)
         activity_week = dict(roots=sum(not a['child'] for a in identities.values()),children=sum(a['child'] for a in identities.values()),inclusive_identities=len(identities),positive_accounting_identities=len(positive_ids),zero_or_synthetic_only=len(set(identities)-positive_ids),task_span_peak=peak('task_span_peak'),positive_task_span_peak=peak('positive_task_span_peak'),missing_terminal_markers=sum(a['missing_terminal'] for a in identities.values()),responding_density={str(w):max((r['responding_density'][str(w)] for r in activity_rows if r['responding_density'][str(w)] is not None),default=None) for w in (60,300,600)}) if activity_rows else None
         weekly.append(dict(date=week, usage=usage_week, activity=activity_week, integrations=sum(len(r['integrations']) for r in rows), deployments=sum(len(r['deployments']) for r in rows), quality_scores=[q['quality_score'] for r in rows for item in r['items'] for q in item['quality']], **stats))
+    known = human_inputs.inventory(db, sources=config.get('sources', []))
+    human = human_inputs.select(db, delivery_filters, zone_name, cutoff, retained=known)
+    input_selection = input_selections.get(db, selection_version(filters))
+    human['selection'] = input_selections.resolve(db, known['events'], known['classifier_version'], input_selection['version'])
+    timer = message_timer.build(ordered, human, zone_name, filters, cutoff)
+    timer['fixed_method_version'] = 'fixed-day-v1'
+    for comparison, dates in [(timer, timer['cohort']['dates']), (timer['full_days'], timer['full_days']['dates']), *[(week, week['dates']) for week in timer['weekly']]]:
+        cohort = set(dates)
+        matched = [row for row in ordered if row['date'] in cohort]
+        comparison['matched_fixed'] = {str(h):statistics_for(matched,h) for h in (4,8,12)}
+    scoped_ids = {event['id'] for event in human['events']}
+    selected_ids = set(human['selection']['ids'])
+    input_details = []
+    for event in known['events']:
+        if event['id'] not in scoped_ids | selected_ids:
+            continue
+        local_time = instant(event['timestamp']).astimezone(zone)
+        input_details.append(dict(event, local_date=local_time.date().isoformat(), local_timestamp=local_time.isoformat(),
+                                  in_scope=event['id'] in scoped_ids, selected=event['id'] in selected_ids))
     return dict(label='xEngineer — estimated delivery equivalent', baseline=BASELINE, disclaimer=DISCLAIMER,
                 selection=filters,
                 cutoff=cutoff, assessment_cutoff=document['cutoff'] if document else None, timezone=zone_name,
                 assessment_version=document['version'] if document else None, privacy_mode=False,
                 delivery_scope='Date/project scope; provider/model/role filters apply only to usage and activity. No evidence-backed model attribution to Git changes.',
                 repositories=[{k:r[k] for k in ('id','repository','project','default_ref','tip','observed_at','limitations')} for r in repositories.values()],
-                days=ordered, weekly=weekly, usage=usage, activity=agent_activity, day_filter=day_filter,
+                days=ordered, weekly=weekly, usage=usage, activity=agent_activity, day_filter=day_filter, message_timer=timer,
+                human_inputs=dict(events=input_details, selection=input_selection, resolution=timer['selection']),
                 sensitivity={str(h):statistics_for(ordered,h) for h in (4,8,12)},
                 full_days={str(h):statistics_for([r for r in ordered if not r['partial_day']],h) for h in (4,8,12)},
                 assumptions=['Comparison hours are per token-active day, not recorded human time.',
@@ -517,7 +549,7 @@ def view(db, config, filters, cutoff=None):
 
 def export_report(report, private=True):
     """Allowlisted share representation. Free text, revisions, paths and identities stay local."""
-    result = {k:report[k] for k in ('label','baseline','disclaimer','cutoff','assessment_cutoff','timezone','assessment_version','delivery_scope','sensitivity','full_days','weekly','assumptions','day_filter')}
+    result = {k:report[k] for k in ('label','baseline','disclaimer','cutoff','assessment_cutoff','timezone','assessment_version','delivery_scope','sensitivity','full_days','weekly','assumptions','day_filter','message_timer')}
     result['privacy_mode'] = private
     result['selection'] = {k:v for k,v in report['selection'].items() if k != 'projects'}
     result['selection']['project_count'] = len(report['selection'].get('projects', []))
@@ -534,7 +566,8 @@ def csv_report(report):
     for key in ('usage','activity'):
         metadata[key] = {k:v for k,v in report[key].items() if k != 'days'}
     writer.writerow(['metadata_json', encoded(metadata)])
-    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores','excluded_low_effort'])
+    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores','excluded_low_effort','message_timer_json'])
+    timer_days = {day['date']:day for day in report['message_timer']['days']}
     for row in report['days']:
-        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores']),row['excluded_low_effort']])
+        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores']),row['excluded_low_effort'],encoded(timer_days.get(row['date']))])
     return stream.getvalue()

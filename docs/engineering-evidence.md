@@ -77,6 +77,46 @@ For `[8,24,0]` central hours, the 8-hour view is `[1,3,0]×`: min 0, max 3, medi
 
 Excluded dates leave both the effort numerator and active-date denominator, including min/max/median/average, known-hour totals, weekly calculations and full-day comparisons. All low/central/high scenarios and sensitivity values in a report use the same retained dates, selected using the report's central estimate and comparison-day length. Changing that length reapplies the cutoff. Usage, activity, integrations and daily evidence retain all dates, with excluded dates marked. Reports and exports record the applied cutoff, its comparison hours, exclusion counts and each date's exclusion flag. For `[0.09,3,0]×` at 8 hours, enabling 0.10× changes the average from 1.03× to 3× and the denominator from three dates to one.
 
+## Human-message timer and matched comparisons
+
+The dashboard presents **Fixed-day equivalent — assumed hours/day** beside **Message-timer equivalent — modeled chat hours**. Both use the same approved conventional-effort assessments and selected low/central/high scenario. Fixed comparison hours (4/8/12), idle timeout (2/5/10 minutes), and input population are separate assumptions. Inputs default to supported-only; user-selected ambiguous inputs and all-ambiguous-inclusive inputs remain separate alternatives. Neither card measures personal productivity or hands-on time.
+
+Each retained human input contributes the half-open interval `[timestamp, timestamp + timeout)`. The timer unions these intervals globally across selected chats/providers, then clips them to local dates and the frozen reporting window. Overlapping chats do not create extra person-time. Ten minutes of preceding input context is considered for tails entering a date selection. Local midnight boundaries respect timezone/DST; an input at the exclusive cutoff adds no time. Missing boundary context and source retention remain explicit limitations.
+
+The default comparison cohort C contains fully assessed, positive-token dates with positive **supported-only five-minute** timer duration, after the optional low-effort exclusion. Both cards use that same C. Changing timeout, input population, effort scenario or a sensitivity endpoint does not reselect C. The low-effort cutoff continues to use central conventional effort divided by the selected fixed comparison hours. Full-day comparisons remove the current local date from C, and weekly comparisons use each week's dates from C.
+
+| Result | Calculation on C |
+| --- | --- |
+| Fixed-day headline | Sum of conventional effort / (fixed comparison hours × date count) |
+| Timer headline | Sum of conventional effort / sum of globally unioned timer hours |
+| Timer daily statistics | Unweighted min/max/median/mean of defined daily effort/time ratios |
+| Joint low sensitivity | Sum of low effort / supported ten-minute timer hours |
+| Joint high sensitivity | Sum of high effort / supported two-minute timer hours |
+
+For effort `[10,18]` and timer hours `[1,9]`, the timer headline is **2.8×**, the unweighted daily mean is **6×**, and the matched eight-hour fixed-day result is **1.75×**. These quantities answer different questions. Joint low/high values are assumption sensitivities, not confidence intervals or true bounds; equivalent user-selected and all-ambiguous-inclusive sensitivities remain separately labeled.
+
+A sensitivity date with zero timer duration stays in C and contributes its effort to the pooled numerator, but its daily ratio is null. If the pooled denominator is zero, the period result and any corresponding joint endpoint are N/A. An empty C never falls back to invented time. The original full fixed-day summary remains available separately, including all selected token-active dates after low-effort exclusions; its incomplete output remains unknown. The UI discloses excluded assessed effort, known effort on incomplete dates, missing timer dates, and output-unknown dates. A retained zero timer says nothing about actual work or a day off.
+
+Human-input-only dates and time outside C are shown for reconciliation. They do not silently enter a narrower output denominator or acquire zero effort. Date/project mappings apply to both delivery and human-input selection; provider/model/role token filters do not attribute Git effort or narrow the human timer. Unmapped and outside-project input evidence is disclosed. Per-project durations cannot be added to obtain total person-time.
+
+Normal sync retains compact classified human-input metadata separately from agent spans and token accounting: stable message identity, physical session owner, original time/basis, classification/reason, classifier version and source hash/stamp. Supported inputs require explicit human-origin evidence. A root session, user role, token timestamp or task start alone is insufficient. Ambiguous legacy inputs are available only in the labeled inclusive sensitivity, which may contain automation and is not an upper bound. Tool results, metadata, inherited context and automated/agent continuations do not extend human timers. Raw prompt bodies are not stored in this index or exported. Retained metadata survives missing files with source availability disclosed; no retention percentage is converted into hours.
+
+JSON, CSV and paired PNG exports preserve the applied scenario, comparison hours, population, timeout, cohort, numerator/denominator, methods, classification version and limitations. CSV metadata contains the complete timer report, including input-only dates; delivery-day rows also include `message_timer_json`. Selected input IDs and selection version are exported as calculation evidence; private source paths, chat identities, prompts, selection rationales and project labels are omitted from share exports. The timer can include waiting while missing reading, typing, review, Slack, meetings and other off-chat work. No automatic off-chat allowance is added.
+
+### Individual ambiguous inputs
+
+Each ambiguous input has an **Include in timer** checkbox in its daily drilldown, with timestamp, provider, chat identity or privacy alias, and ambiguity reason. Choosing it adds its window to the **selected** population; it does not change its source classification. Known excluded tool/meta/automated inputs cannot be selected. The supported-only and all-inclusive populations remain unchanged. For supported input at 09:00 and ambiguous inputs at 09:03, 09:20 and 09:22, five-minute totals are 5 minutes supported, 13 minutes with the first two ambiguous choices, and 15 minutes all-inclusive. Deselecting the 09:20 input gives 8 minutes; resetting gives 5.
+
+Selections are immutable versions in `human_input_selections`, separate from source metadata. Each choice binds an input ID to a fingerprint of its original timestamp, physical owner and classification provenance. Growing files and project relabeling do not invalidate it. Missing, changed and invalid imported references stay recorded with explicit warnings and contribute no selected time until reviewed. Optional rationales stay private. Local selection JSON export/import preserves the references; reset writes an empty selection. Concurrent stale writes fail explicitly. Calculated JSON/CSV exports pin the selection version displayed by the report, including while a newer selection is being loaded.
+
+The selected population globally unions supported windows and valid individually chosen ambiguous windows at every timeout. Choices never expand C. The report identifies choices outside scope or outside the headline cohort's windows; intersecting the cohort does not mean an event adds unique time, because windows can overlap. Sorting and filtering rows do not delete hidden choices. Selection IDs/counts, version and ambiguity labels travel with exported calculation metadata, without raw message bodies.
+
+### Daily table views
+
+Every daily metric column has keyboard-accessible ascending/descending sort controls and `aria-sort`. Dates sort chronologically, numbers use their unrounded values, text sorts consistently, N/A stays last in both directions, and equal values retain stable order. Zero remains a numeric value. Date/evidence text filters are case-insensitive; inclusive numeric min/max filters combine with every other active filter using AND. N/A is excluded only when its numeric column has an active range. Visible/total counts and a no-matches state make the row subset explicit; **Clear filters** restores rows while preserving sort order.
+
+These controls change the table view only. They do not change global date/project scope, input choices, assessments, cards or C. JSON/CSV calculation exports retain the full report. A PNG containing a filtered table labels the view subset and its row filters alongside full-report scope metadata.
+
 ## Quality and test evidence
 
 Quality reviews are independent objects within an item. Required fields are `status`, `repository`, exact `revision`, `files`, `method`, `method_version`, `reviewer`, `reviewed_at`, `scores`, `confidence`, `strengths`, `reservations`, `unreviewed_scope`, `evidence`, `tests`. File scopes must exist at the reviewed revision. Configuration and Markdown can be reviewed; neither file classification nor prose approval establishes test success.
@@ -97,7 +137,7 @@ Activity metadata stores identities and parent links separately from sessions. C
 
 ## Privacy and exports
 
-JSON/CSV share exports contain selections (project count without private labels), assumptions, cutoffs, coverage, partial-day status, privacy mode and numeric evidence. They always omit raw/private free text, source references/hashes, repository revisions/paths and agent identities. PNGs omit local evidence/editor controls and show the visible privacy mode. Changing aliases only changes display labels; it does not merge canonical repositories or allocate effort. Explicit **Save local assessment JSON** retains review details for editing and is labeled private.
+JSON/CSV share exports contain selections (project count without private labels), assumptions, cutoffs, coverage, partial-day status, privacy mode and numeric evidence. They omit raw/private free text, private source references/hashes, repository revisions/paths and agent identities; explicit ambiguous-input selections retain their IDs/version as calculation metadata. PNGs omit local evidence/editor controls and show the visible privacy mode. Changing aliases only changes display labels; it does not merge canonical repositories or allocate effort. Explicit **Save local assessment JSON** and local input-selection JSON retain review details for editing and are labeled private.
 
 Validation: `python3 -m unittest -v`, `node test_dashboard.cjs`, and `node test_engineering_dashboard.cjs`.
 
