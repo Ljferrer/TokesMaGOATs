@@ -445,7 +445,7 @@ def view(db, config, filters, cutoff=None):
                 day = instant(integration['timestamp']).astimezone(zone).date().isoformat()
                 row = day_row(day)
                 if row is not None:
-                    row['integrations'].append(integration)
+                    row['integrations'].append(dict(integration, commits=[{k:v for k,v in commit.items() if k != 'tree_files'} for commit in integration['commits']]))
         linked = set()
         excluded = {(i['repository'], i['head']) for i in document['excluded_integrations']}
         for item in document['work_items']:

@@ -30,10 +30,12 @@ def init(db):
       observed_at TEXT, counters TEXT, known TEXT, identity TEXT,
       first_event TEXT, last_event TEXT, granularity TEXT,
       PRIMARY KEY(event_id,source));
+    CREATE INDEX IF NOT EXISTS response_sources_source ON response_sources(source,granularity);
     CREATE TABLE IF NOT EXISTS activity_sources (
       source TEXT PRIMARY KEY, stamp TEXT, observed_at TEXT, body TEXT);
     CREATE TABLE IF NOT EXISTS legacy_origins (
       event_id TEXT, source TEXT, PRIMARY KEY(event_id,source));
+    CREATE INDEX IF NOT EXISTS legacy_origins_source ON legacy_origins(source);
     CREATE TABLE IF NOT EXISTS superseded_legacy (
       event_id TEXT PRIMARY KEY, source TEXT, observed_at TEXT);
     ''')
@@ -217,6 +219,10 @@ def overlap(spans):
 def density(points, window, start=None, end=None):
     """Peak distinct identities in (t-window,t], evaluated at response observations."""
     values = sorted((instant(t).timestamp(), identity) for identity, times in points.items() for t in set(times))
+    return response_density(values, window, start, end)
+
+
+def response_density(values, window, start=None, end=None):
     counts, left, peak = defaultdict(int), 0, 0
     for right, (time, identity) in enumerate(values):
         counts[identity] += 1
@@ -352,42 +358,59 @@ def activity(db, filters, timezone, events, provenance, cutoff):
                 responding[response_identity[key]].add(timestamp)
         if a['responses'] and not a['request_observed'] and all(key in response_identity and response_identity[key]!=identity for key,t in a['responses']):
             del agents[identity]
+    responding = {identity: {instant(t) for t in times} for identity, times in responding.items()}
     if filters.get('model') or filters.get('role'):
         selected_identities = set().union(*positive.values()) if positive else set()
         for identity,times in responding.items():
-            if any(filters.get('start','0001-01-01') <= instant(t).astimezone(zone).date().isoformat() <= filters.get('end','9999-12-31') for t in times):
+            if any(filters.get('start','0001-01-01') <= t.astimezone(zone).date().isoformat() <= filters.get('end','9999-12-31') for t in times):
                 selected_identities.add(identity)
         agents = {k: a for k, a in agents.items() if k in selected_identities}
     days = {}
+    day_spans = defaultdict(lambda: defaultdict(list))
+    day_responses = defaultdict(list)
+    first_date = dt.date.fromisoformat(filters.get('start', '0001-01-01'))
+    last_date = dt.date.fromisoformat(filters.get('end', '9999-12-31'))
+    for identity, times in responding.items():
+        for time in times:
+            if time >= cutoff:
+                continue
+            date = time.astimezone(zone).date()
+            if first_date <= date <= last_date:
+                day_responses[date.isoformat()].append((time.timestamp(), identity))
+            if date < last_date and date < dt.date.max:
+                following = date + dt.timedelta(days=1)
+                midnight = dt.datetime.combine(following, dt.time(), zone).astimezone(UTC)
+                if following >= first_date and time > midnight - dt.timedelta(seconds=600):
+                    day_responses[following.isoformat()].append((time.timestamp(), identity))
     for identity, a in agents.items():
         for t in a['points']:
-            if instant(t) > cutoff:
+            time = instant(t)
+            if time > cutoff:
                 continue
-            day = instant(t).astimezone(zone).date().isoformat()
-            if filters.get('start', '0001-01-01') <= day <= filters.get('end', '9999-12-31'):
+            day = time.astimezone(zone).date().isoformat()
+            if first_date.isoformat() <= day <= last_date.isoformat():
                 days.setdefault(day, set()).add(identity)
         for begin, finish in a['spans']:
-            left, right = instant(begin), min(instant(finish), cutoff)
+            left = max(instant(begin), dt.datetime.combine(first_date, dt.time(), zone).astimezone(UTC)) if first_date > dt.date.min else instant(begin)
+            right = min(instant(finish), cutoff)
             date = left.astimezone(zone).date()
-            while left < right:
+            while left < right and date <= last_date:
                 day = date.isoformat()
-                if filters.get('start', '0001-01-01') <= day <= filters.get('end', '9999-12-31'):
-                    days.setdefault(day, set()).add(identity)
-                date += dt.timedelta(days=1)
-                left = dt.datetime.combine(date, dt.time(), zone).astimezone(UTC)
+                next_date = date + dt.timedelta(days=1)
+                midnight = dt.datetime.combine(next_date, dt.time(), zone).astimezone(UTC)
+                clipped_end = min(midnight, right)
+                days.setdefault(day, set()).add(identity)
+                day_spans[day][identity].append([left.isoformat(), clipped_end.isoformat()])
+                left, date = midnight, next_date
     for day, identities in positive.items():
         days.setdefault(day, set()).update(identities)
     result = {}
     for day, identities in sorted(days.items()):
         start = dt.datetime.combine(dt.date.fromisoformat(day), dt.time(), zone).astimezone(UTC)
         end = min(dt.datetime.combine(dt.date.fromisoformat(day)+dt.timedelta(days=1), dt.time(), zone).astimezone(UTC), cutoff)
-        bounds = defaultdict(list)
-        day_points = {identity:[t for t in times if start-dt.timedelta(seconds=600) < instant(t) < end] for identity,times in responding.items()}
-        for identity, a in agents.items():
-            for begin, finish in a['spans']:
-                left, right = max(start, instant(begin)), min(end, instant(finish))
-                if left < right:
-                    bounds[identity].append([left.isoformat(), right.isoformat()])
+        bounds = day_spans[day]
+        values = sorted(day_responses[day])
+        has_response = any(start.timestamp() <= time < end.timestamp() for time, identity in values)
         positive_ids = positive[day]
         result[day] = dict(roots=sum(not agents.get(i, {}).get('child', i.startswith('Codex:snipe:')) for i in identities if i in agents),
                            children=sum(agents.get(i, {}).get('child', False) for i in identities),
@@ -395,7 +418,7 @@ def activity(db, filters, timezone, events, provenance, cutoff):
                            zero_or_synthetic_only=len(identities-positive_ids),
                            task_span_peak=overlap(bounds) if bounds else None,
                            positive_task_span_peak=overlap({k:v for k,v in bounds.items() if k in positive_ids}) if any(k in positive_ids for k in bounds) else None,
-                           responding_density={str(w): density(day_points, w, start.timestamp(), end.timestamp()) if any(start <= instant(t) < end for times in day_points.values() for t in times) else None for w in (60, 300, 600)},
+                           responding_density={str(w): response_density(values, w, start.timestamp(), end.timestamp()) if has_response else None for w in (60, 300, 600)},
                            missing_terminal_markers=sum(agents.get(i, {}).get('missing_terminal', False) for i in identities),
                            positive_identity_ids=sorted(positive_ids),
                            identities=[{k:v for k,v in agents[i].items() if k not in ('points', 'spans', 'responses', 'request_observed')} for i in sorted(identities) if i in agents])
