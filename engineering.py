@@ -1,6 +1,7 @@
 """Local Git snapshots, versioned manual assessments, and delivered-scope scenarios."""
 import csv
 import datetime as dt
+from decimal import Decimal
 import hashlib
 import io
 import json
@@ -346,7 +347,18 @@ def template(db, timezone):
     return dict(schema_version=1, version=1, timezone=timezone, cutoff=now(), reviewer='Local reviewer', method='manual', method_version='1', approval_status='proposed', snapshots=[], work_items=[], excluded_integrations=[], day_reviews=[])
 
 
+def day_filter_options(filters):
+    threshold = float(filters['effort_threshold']) if 'effort_threshold' in filters else None
+    require(threshold is None or math.isfinite(threshold) and 0 <= threshold <= .5, 'Effort threshold must be between 0.00 and 0.50')
+    hours = str(filters.get('comparison_hours', '8'))
+    require(hours in ('4','8','12'), 'Comparison hours must be 4, 8 or 12')
+    return dict(threshold=threshold, comparison_hours=int(hours), basis='central')
+
+
 def statistics_for(days, hours):
+    original_eligible = sum(d['eligible'] for d in days)
+    excluded = sum(d['eligible'] and d.get('excluded_low_effort', False) for d in days)
+    days = [d for d in days if not d.get('excluded_low_effort', False)]
     eligible = [d for d in days if d['eligible']]
     known = [d for d in eligible if d['status'] == 'assessed']
     complete = bool(eligible) and len(known) == len(eligible)
@@ -366,10 +378,12 @@ def statistics_for(days, hours):
                             **{k:v if complete else None for k,v in stats.items()})
     return dict(complete=complete, delivery_complete=delivery_complete, status='complete' if complete and delivery_complete else 'partial' if eligible or delivery_dates else 'no eligible dates',
                 eligible_dates=len(eligible), assessed_dates=len(known), comparison_hours=hours,
+                eligible_dates_before_filter=original_eligible, excluded_dates=excluded,
                 denominator_hours=hours*len(eligible), scenarios=scenarios)
 
 
 def view(db, config, filters, cutoff=None):
+    day_filter = day_filter_options(filters)
     init(db)
     if not db.in_transaction:
         db.execute('BEGIN')
@@ -458,7 +472,12 @@ def view(db, config, filters, cutoff=None):
             if repositories and row['review'] and row['review']['status']=='assessed' and not row['unknown_items'] and not row['unmapped_projects'] and instant(document['cutoff']) >= coverage_end:
                 row['status']='assessed'
     ordered = [days[d] for d in sorted(days)]
+    minimum_hours = Decimal(str(day_filter['threshold'])) * day_filter['comparison_hours'] if day_filter['threshold'] is not None else None
     for row in ordered:
+        row['excluded_low_effort'] = False
+        if minimum_hours is not None and row['status']=='assessed':
+            central_hours = sum(Decimal(str(item['effort']['hours_central'])) for item in row['items'])
+            row['excluded_low_effort'] = central_hours < minimum_hours
         if row['status'] != 'assessed':
             row['known_item_hours'] = row['hours']
             row['hours'] = {s:None for s in SCENARIOS}
@@ -485,7 +504,7 @@ def view(db, config, filters, cutoff=None):
                 assessment_version=document['version'] if document else None, privacy_mode=False,
                 delivery_scope='Date/project scope; provider/model/role filters apply only to usage and activity. No evidence-backed model attribution to Git changes.',
                 repositories=[{k:r[k] for k in ('id','repository','project','default_ref','tip','observed_at','limitations')} for r in repositories.values()],
-                days=ordered, weekly=weekly, usage=usage, activity=agent_activity,
+                days=ordered, weekly=weekly, usage=usage, activity=agent_activity, day_filter=day_filter,
                 sensitivity={str(h):statistics_for(ordered,h) for h in (4,8,12)},
                 full_days={str(h):statistics_for([r for r in ordered if not r['partial_day']],h) for h in (4,8,12)},
                 assumptions=['Comparison hours are per token-active day, not recorded human time.',
@@ -498,12 +517,12 @@ def view(db, config, filters, cutoff=None):
 
 def export_report(report, private=True):
     """Allowlisted share representation. Free text, revisions, paths and identities stay local."""
-    result = {k:report[k] for k in ('label','baseline','disclaimer','cutoff','assessment_cutoff','timezone','assessment_version','delivery_scope','sensitivity','full_days','weekly','assumptions')}
+    result = {k:report[k] for k in ('label','baseline','disclaimer','cutoff','assessment_cutoff','timezone','assessment_version','delivery_scope','sensitivity','full_days','weekly','assumptions','day_filter')}
     result['privacy_mode'] = private
     result['selection'] = {k:v for k,v in report['selection'].items() if k != 'projects'}
     result['selection']['project_count'] = len(report['selection'].get('projects', []))
     result['evidence_detail'] = 'References, scope text, source paths/hashes, identities and repository revisions omitted from share exports. Use explicit local assessment export for editing.'
-    result['days'] = [{k:row[k] for k in ('date','eligible','partial_day','hours','status')} | dict(unknown_items=len(row['unknown_items']), unmapped_projects=len(row['unmapped_projects']), work_items=len(row['items']), integrations=len(row['integrations']), deployments=len(row['deployments']), quality_scores=[q['quality_score'] for item in row['items'] for q in item['quality']]) for row in report['days']]
+    result['days'] = [{k:row[k] for k in ('date','eligible','partial_day','hours','status','excluded_low_effort')} | dict(unknown_items=len(row['unknown_items']), unmapped_projects=len(row['unmapped_projects']), work_items=len(row['items']), integrations=len(row['integrations']), deployments=len(row['deployments']), quality_scores=[q['quality_score'] for item in row['items'] for q in item['quality']]) for row in report['days']]
     result['usage'] = report['usage']
     result['activity'] = dict(report['activity'], days={d:{k:v for k,v in row.items() if k not in ('identities','positive_identity_ids')} for d,row in report['activity']['days'].items()})
     return result
@@ -515,7 +534,7 @@ def csv_report(report):
     for key in ('usage','activity'):
         metadata[key] = {k:v for k,v in report[key].items() if k != 'days'}
     writer.writerow(['metadata_json', encoded(metadata)])
-    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores'])
+    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores','excluded_low_effort'])
     for row in report['days']:
-        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores'])])
+        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores']),row['excluded_low_effort']])
     return stream.getvalue()

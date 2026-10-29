@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -80,6 +81,18 @@ app.main()
             self.assertIsNotNone(row, 'Success must follow the durable commit')
             frozen=row[0]
         self.assertEqual(json.loads(frozen),result['report'])
+
+    def test_effort_filter_is_shared_by_usage_and_export(self):
+        filters=dict(start='2026-01-01',end='2026-01-03',effort_threshold='0.10',comparison_hours='12')
+        code,usage=self.request('/api/usage?'+urllib.parse.urlencode(filters));self.assertEqual(code,200)
+        code,result=self.request('/api/engineering/export',dict(filters=filters,privacy=True));self.assertEqual(code,200)
+        self.assertEqual(usage['engineering']['day_filter'],dict(threshold=.1,comparison_hours=12,basis='central'))
+        self.assertEqual(result['report']['day_filter'],usage['engineering']['day_filter'])
+        for key,value in [('effort_threshold','nan'),('effort_threshold','inf'),('effort_threshold','-0.01'),('effort_threshold','0.51'),('comparison_hours','5')]:
+            bad=dict(filters,**{key:value})
+            with self.subTest(key=key,value=value):
+                self.assertEqual(self.request('/api/usage?'+urllib.parse.urlencode(bad))[0],400)
+                self.assertEqual(self.request('/api/engineering/export',dict(filters=bad,privacy=True))[0],400)
 
 
 if __name__=='__main__':unittest.main()

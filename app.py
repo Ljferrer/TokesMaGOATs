@@ -335,7 +335,7 @@ def validated_range(filters, today):
 
 
 def normalized_filters(values, today):
-    engineering.exact_keys(values, (), ('start','end','provider','model','role','compare','projects'))
+    engineering.exact_keys(values, (), ('start','end','provider','model','role','compare','projects','effort_threshold','comparison_hours'))
     result = {}
     for key,value in values.items():
         if key == 'projects':
@@ -347,6 +347,7 @@ def normalized_filters(values, today):
             if value:
                 result[key] = engineering.text(value, key)
     result.update(validated_range(result,today))
+    engineering.day_filter_options(result)
     return result
 
 
@@ -480,7 +481,7 @@ def main():
             if urlsplit(self.path).path == '/api/usage':
                 try:
                     query=parse_qs(urlsplit(self.path).query)
-                    filters={k:query[k][0] for k in ('start','end','provider','model','role','compare') if query.get(k)}
+                    filters={k:query[k][0] for k in ('start','end','provider','model','role','compare','effort_threshold','comparison_hours') if query.get(k)}
                     today=dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
                     if query.get('project'):filters['projects']=query['project']
                     filters=normalized_filters(filters,today)

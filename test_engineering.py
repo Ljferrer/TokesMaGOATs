@@ -61,6 +61,66 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(result['sensitivity']['4']['scenarios']['central']['average'],8/3)
         self.assertAlmostEqual(result['sensitivity']['12']['scenarios']['central']['average'],8/9)
         self.assertEqual(result['weekly'][0]['scenarios']['central']['engineer_days'],4)
+    def test_low_effort_days_leave_both_numerator_and_denominator(self):
+        self.doc['work_items'][0]['effort'].update(hours_low=.36,hours_central=.72,hours_high=1.44)
+        eng.import_assessment(self.db,self.doc,'UTC')
+        self.assertAlmostEqual(self.view()['sensitivity']['8']['scenarios']['central']['average'],1.03)
+        report=self.view(effort_threshold='0.10',comparison_hours='8');stats=report['sensitivity']['8']
+        self.assertEqual((stats['eligible_dates_before_filter'],stats['excluded_dates'],stats['eligible_dates'],stats['denominator_hours']),(3,2,1,8))
+        self.assertEqual([stats['scenarios']['central'][k] for k in ('minimum','maximum','median','average')],[3,3,3,3])
+        self.assertEqual([stats['scenarios'][s]['total_estimated_hours'] for s in eng.SCENARIOS],[12,24,48])
+        self.assertEqual(report['weekly'][0]['scenarios']['central']['average_daily_equivalent'],3)
+        self.assertEqual(report['full_days']['8']['eligible_dates'],1)
+        self.assertEqual([day['excluded_low_effort'] for day in report['days']],[True,False,True])
+        self.assertEqual(report['weekly'][0]['usage']['total'],300)
+        # The same central-effort cohort is used for every scenario/sensitivity.
+        self.assertEqual(report['sensitivity']['4']['scenarios']['central']['average'],6)
+        changed=self.view(effort_threshold='0.10',comparison_hours='4')
+        self.assertEqual(changed['sensitivity']['4']['eligible_dates'],2)
+        self.assertAlmostEqual(changed['sensitivity']['4']['scenarios']['central']['average'],3.09)
+        public=eng.export_report(report);rows=list(csv.reader(io.StringIO(eng.csv_report(public))))
+        self.assertEqual(json.loads(rows[0][1])['day_filter'],dict(threshold=.1,comparison_hours=8,basis='central'))
+        self.assertEqual([row[-1] for row in rows[2:]],['True','False','True'])
+        self.assertEqual(sum(json.loads(row[12])['total'] for row in rows[2:]),300)
+        self.assertEqual(self.view()['sensitivity']['8']['eligible_dates'],3)
+
+    def test_effort_threshold_keeps_unknowns_and_exact_boundary(self):
+        self.doc['work_items'][0]['effort'].update(hours_low=.6,hours_central=1.2,hours_high=2.4)
+        self.doc['day_reviews'].pop();eng.import_assessment(self.db,self.doc,'UTC')
+        report=self.view(effort_threshold='0.10',comparison_hours='12');stats=report['sensitivity']['12']
+        self.assertFalse(report['days'][0]['excluded_low_effort'])
+        self.assertFalse(report['days'][2]['excluded_low_effort'])
+        self.assertEqual(stats['eligible_dates'],3);self.assertIsNone(stats['scenarios']['central']['average'])
+        self.assertIsNone(report['days'][2]['hours']['central'])
+
+    def test_zero_threshold_and_empty_filtered_population(self):
+        for item in self.doc['work_items']:item['effort'].update(hours_low=.05,hours_central=.1,hours_high=.2)
+        eng.import_assessment(self.db,self.doc,'UTC')
+        self.assertEqual(self.view(effort_threshold='0')['sensitivity']['8']['eligible_dates'],3)
+        stats=self.view(effort_threshold='0.50')['sensitivity']['8']
+        self.assertEqual((stats['eligible_dates'],stats['excluded_dates'],stats['denominator_hours']),(0,3,0))
+        self.assertEqual(stats['status'],'no eligible dates')
+        self.assertIsNone(stats['scenarios']['central']['average']);self.assertIsNone(stats['scenarios']['central']['minimum'])
+        self.assertEqual(stats['scenarios']['central']['total_estimated_hours'],0)
+
+    def test_effort_threshold_sums_decimal_estimates_at_the_boundary(self):
+        third=self.commit('c.py','z=3\n','2026-01-02T16:00:00Z')
+        self.snapshot=eng.collect_repositories(self.db,self.config)[0]
+        self.doc['snapshots']=[self.snapshot['id']]
+        self.doc['work_items'][1]['effort'].update(hours_low=.35,hours_central=.7,hours_high=1.4)
+        self.doc['work_items'].append(self.item('follow-up',third,'c.py',.1))
+        eng.import_assessment(self.db,self.doc,'UTC')
+        report=self.view(effort_threshold='0.10',comparison_hours='8')
+        self.assertFalse(report['days'][1]['excluded_low_effort'])
+        self.assertEqual(report['sensitivity']['8']['eligible_dates'],2)
+
+    def test_threshold_full_day_comparison_excludes_the_current_date_separately(self):
+        self.doc['cutoff']='2026-01-03T14:00:00Z';eng.import_assessment(self.db,self.doc,'UTC')
+        report=eng.view(self.db,self.config,dict(start='2026-01-01',end='2026-01-03',effort_threshold='0.10'),cutoff=self.doc['cutoff'])
+        self.assertEqual(report['sensitivity']['8']['excluded_dates'],1)
+        self.assertEqual(report['full_days']['8']['excluded_dates'],0)
+        self.assertEqual(report['full_days']['8']['eligible_dates_before_filter'],2)
+        self.assertEqual(report['full_days']['8']['scenarios']['central']['average'],2)
     def test_unmapped_project_keeps_scope_unknown(self):
         self.db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',event('unmapped','2026-01-03T14:00:00Z','Codex','local','unmapped','model',False,dict(input_tokens=1,output_tokens=0)))
         eng.import_assessment(self.db,self.doc,'UTC')
