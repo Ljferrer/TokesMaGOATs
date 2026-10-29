@@ -17,6 +17,9 @@ from topics import contexts as topic_contexts, project_name
 from snipe_usage import results as snipe_results, DEFAULT_PATTERNS, DEFAULT_ROOTS
 import evidence
 import engineering
+import human_inputs
+import message_timer
+import input_selections
 
 BASE = Path(__file__).resolve().parent
 LOCK = threading.Lock()
@@ -37,6 +40,8 @@ def connect(path):
     ''')
     evidence.init(db)
     engineering.init(db)
+    human_inputs.init(db)
+    input_selections.init(db)
     return db
 
 
@@ -194,7 +199,7 @@ def sync(db_path, config):
                     st = path.stat()
                     meta = path.with_suffix('.meta.json')
                     meta_stamp = meta.stat().st_mtime_ns if meta.exists() else 0
-                    stamp = f'{evidence.PARSER_VERSION}:{st.st_mtime_ns}:{st.st_size}:{meta_stamp}'
+                    stamp = f'{evidence.PARSER_VERSION}:{human_inputs.CLASSIFIER_VERSION}:{st.st_mtime_ns}:{st.st_size}:{meta_stamp}'
                     old = db.execute('SELECT stamp FROM files WHERE path=?', (str(path),)).fetchone()
                     if old and old[0] == stamp:
                         continue
@@ -221,6 +226,7 @@ def sync(db_path, config):
                             db.execute('DELETE FROM response_sources WHERE event_id=?', (key,))
                             db.execute('DELETE FROM legacy_origins WHERE event_id=?', (key,))
                     evidence.save_provenance(db, path, provenance, source_stamp)
+                    human_inputs.save(db, path, source['provider'], json_lines(path), source_stamp)
                     db.execute('INSERT OR REPLACE INTO activity_sources VALUES (?,?,?,?)', (str(path), source_stamp, evidence.now(), json.dumps(activity)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?)', (str(path), stamp))
                     db.execute('RELEASE history_file')
@@ -335,7 +341,7 @@ def validated_range(filters, today):
 
 
 def normalized_filters(values, today):
-    engineering.exact_keys(values, (), ('start','end','provider','model','role','compare','projects','effort_threshold','comparison_hours'))
+    engineering.exact_keys(values, (), ('start','end','provider','model','role','compare','projects','effort_threshold','comparison_hours','effort_scenario','idle_timeout','input_population','input_selection_version'))
     result = {}
     for key,value in values.items():
         if key == 'projects':
@@ -348,6 +354,8 @@ def normalized_filters(values, today):
                 result[key] = engineering.text(value, key)
     result.update(validated_range(result,today))
     engineering.day_filter_options(result)
+    message_timer.options(result)
+    engineering.selection_version(result)
     return result
 
 
@@ -378,6 +386,30 @@ def usage_view(db_path, config, filters, state):
     after=state.snapshot()
     after['syncing']=import_status['syncing'] or after['syncing'] or import_status['generation']!=after['generation']
     return dict(result,**after)
+
+
+class ReportPreviews:
+    """Bounded immutable share snapshots of displayed reports; exports persist separately."""
+    def __init__(self):
+        self._reports = {}
+        self._lock = threading.Lock()
+
+    def remember(self, report):
+        body = engineering.encoded(engineering.export_report(report))
+        identifier = hashlib.sha256(body.encode()).hexdigest()
+        with self._lock:
+            self._reports.pop(identifier, None)
+            self._reports[identifier] = body
+            while len(self._reports) > 32:
+                self._reports.pop(next(iter(self._reports)))
+        return identifier
+
+    def get(self, identifier):
+        engineering.require(isinstance(identifier, str) and re.fullmatch('[0-9a-f]{64}', identifier), 'Invalid report ID')
+        with self._lock:
+            body = self._reports.get(identifier)
+        engineering.require(body is not None, 'Displayed report expired or is unavailable; refresh the dashboard before exporting.')
+        return json.loads(body)
 
 
 class ImportState:
@@ -463,6 +495,7 @@ def main():
         return
     with connect(db_path):pass
     state=ImportState(db_path,config)
+    previews=ReportPreviews()
     state.start()
 
     class Handler(BaseHTTPRequestHandler):
@@ -481,11 +514,13 @@ def main():
             if urlsplit(self.path).path == '/api/usage':
                 try:
                     query=parse_qs(urlsplit(self.path).query)
-                    filters={k:query[k][0] for k in ('start','end','provider','model','role','compare','effort_threshold','comparison_hours') if query.get(k)}
+                    filters={k:query[k][0] for k in ('start','end','provider','model','role','compare','effort_threshold','comparison_hours','effort_scenario','idle_timeout','input_population','input_selection_version') if query.get(k)}
                     today=dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
                     if query.get('project'):filters['projects']=query['project']
                     filters=normalized_filters(filters,today)
-                    self.send(200,json.dumps(usage_view(db_path,config,filters,state)).encode())
+                    result=usage_view(db_path,config,filters,state)
+                    result['engineering']['report_id']=previews.remember(result['engineering'])
+                    self.send(200,json.dumps(result).encode())
                 except (ValueError,OverflowError) as error:
                     self.send(400,json.dumps({'error':str(error)}).encode())
             elif self.path == '/api/state':
@@ -493,9 +528,15 @@ def main():
             elif self.path == '/api/engineering/assessment':
                 with connect(db_path) as db:
                     self.send(200, json.dumps(dict(assessment=engineering.template(db, config.get('timezone','America/Los_Angeles')), snapshots=[dict(id=i, **json.loads(body)) for i,body in db.execute('SELECT id,body FROM repository_snapshots ORDER BY observed_at DESC')])).encode())
+            elif self.path == '/api/engineering/input-selection':
+                with connect(db_path) as db:
+                    db.execute('BEGIN')
+                    known = human_inputs.inventory(db, sources=config.get('sources', []))
+                    chosen = input_selections.get(db)
+                    self.send(200, json.dumps(dict(selection=chosen, resolution=input_selections.resolve(db,known['events'],known['classifier_version'],chosen['version']))).encode())
             elif self.path == '/engineering-guide':
                 self.send(200, (BASE / 'docs' / 'engineering-evidence.md').read_bytes(), 'text/plain; charset=utf-8')
-            elif self.path in ('/share.js', '/engineering.js', '/vendor/html-to-image.js'):
+            elif self.path in ('/share.js', '/engineering.js', '/engineering_table.js', '/vendor/html-to-image.js'):
                 self.send(200, (BASE / self.path.lstrip('/')).read_bytes(), 'application/javascript; charset=utf-8')
             elif self.path == '/':
                 self.send(200, (BASE / 'index.html').read_bytes(), 'text/html; charset=utf-8')
@@ -509,7 +550,7 @@ def main():
             elif self.path == '/api/sync':
                 state.start()
                 self.send(202, json.dumps(state.snapshot()).encode())
-            elif self.path in ('/api/engineering/import', '/api/engineering/collect', '/api/engineering/export'):
+            elif self.path in ('/api/engineering/import', '/api/engineering/collect', '/api/engineering/export', '/api/engineering/input-selection'):
                 try:
                     if self.path.endswith('/collect'):
                         with LOCK, connect(db_path) as db:
@@ -522,15 +563,19 @@ def main():
                         document = json.loads(self.rfile.read(length))
                         with LOCK, connect(db_path) as db:
                             if self.path.endswith('/export'):
-                                engineering.exact_keys(document, ('filters','privacy'))
+                                engineering.exact_keys(document, ('report_id','privacy'))
                                 engineering.require(type(document['privacy']) is bool, 'privacy must be boolean')
-                                today = dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
-                                filters = normalized_filters(document['filters'], today)
-                                report = engineering.export_report(engineering.view(db, config, filters), bool(document.get('privacy', True)))
+                                report = previews.get(document['report_id'])
+                                report['privacy_mode'] = document['privacy']
                                 body = engineering.encoded(report)
                                 identifier = hashlib.sha256(body.encode()).hexdigest()
                                 db.execute('INSERT OR IGNORE INTO engineering_reports VALUES (?,?,?)', (identifier,report['cutoff'],body))
                                 response = {'id':identifier,'report':report,'csv':engineering.csv_report(report)}
+                            elif self.path.endswith('/input-selection'):
+                                db.execute('BEGIN')
+                                known = human_inputs.inventory(db, sources=config.get('sources', []))
+                                chosen = input_selections.save(db, document, known['events'], known['classifier_version'])
+                                response = dict(selection=chosen, resolution=input_selections.resolve(db,known['events'],known['classifier_version'],chosen['version']))
                             else:
                                 version = engineering.import_assessment(db, document, config.get('timezone','America/Los_Angeles'))
                                 response = {'version':version}

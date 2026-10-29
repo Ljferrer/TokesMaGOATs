@@ -13,6 +13,7 @@ from unittest.mock import patch
 from app import connect, event, records, sync, summary
 import engineering as eng
 import evidence as ev
+import human_inputs
 
 
 class EngineeringTests(unittest.TestCase):
@@ -61,6 +62,38 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(result['sensitivity']['4']['scenarios']['central']['average'],8/3)
         self.assertAlmostEqual(result['sensitivity']['12']['scenarios']['central']['average'],8/9)
         self.assertEqual(result['weekly'][0]['scenarios']['central']['engineer_days'],4)
+
+    def test_invalid_saved_alias_remains_visible_outside_report_scope(self):
+        import input_selections
+        from test_human_inputs import codex_meta, codex_start, codex_input
+        eng.import_assessment(self.db,self.doc,'UTC')
+        def source(name, message_id, time, canonical=None, human=False):
+            rows=[codex_meta(),codex_start(),codex_input(message_id,original_time=time,canonical_id=canonical,human=human)]
+            path=self.root/(name+'.jsonl');path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+            human_inputs.save(self.db,path,'Codex',rows)
+        source('supported','supported','2026-01-01T08:00:00Z',human=True)
+        source('first','first','2026-01-02T09:00:00Z')
+        source('second','second','2026-01-02T09:00:00Z')
+        known=human_inputs.inventory(self.db)
+        saved=input_selections.save(self.db,dict(base_version=0,entries=[dict(id='Codex:second')]),known['events'],known['classifier_version'])
+        source('bridge','second','2026-01-02T09:00:00Z',canonical='first')
+        filters=dict(start='2026-01-01',end='2026-01-01',input_population='selected')
+        before=eng.view(self.db,self.config,filters,cutoff='2026-01-04T00:00:00Z')
+        details={e['id']:e for e in before['human_inputs']['events']};self.assertIn('Codex:first',details)
+        chosen=details['Codex:first']
+        self.assertTrue(chosen['selected']);self.assertFalse(chosen['in_scope'])
+        source('conflict','second','2026-01-02T10:00:00Z',canonical='first')
+        after=eng.view(self.db,self.config,filters,cutoff='2026-01-04T00:00:00Z')
+        details={e['id']:e for e in after['human_inputs']['events']};self.assertIn('Codex:first',details)
+        chosen=details['Codex:first']
+        self.assertTrue(chosen['selected']);self.assertFalse(chosen['in_scope']);self.assertTrue(chosen['provenance_conflict'])
+        self.assertEqual(after['human_inputs']['selection'],saved)
+        selection=after['message_timer']['selection']
+        self.assertEqual(selection['ids'],['Codex:second']);self.assertEqual(selection['invalid_ids'],['Codex:second'])
+        self.assertEqual(selection['resolved_ids'],{});self.assertTrue(selection['warnings'])
+        self.assertEqual(after['message_timer']['sensitivity']['selected'],after['message_timer']['sensitivity']['supported'])
+        public=eng.export_report(after)
+        self.assertNotIn('human_inputs',public);self.assertNotIn('"aliases":',json.dumps(public))
     def test_low_effort_days_leave_both_numerator_and_denominator(self):
         self.doc['work_items'][0]['effort'].update(hours_low=.36,hours_central=.72,hours_high=1.44)
         eng.import_assessment(self.db,self.doc,'UTC')
@@ -80,7 +113,7 @@ class EngineeringTests(unittest.TestCase):
         self.assertAlmostEqual(changed['sensitivity']['4']['scenarios']['central']['average'],3.09)
         public=eng.export_report(report);rows=list(csv.reader(io.StringIO(eng.csv_report(public))))
         self.assertEqual(json.loads(rows[0][1])['day_filter'],dict(threshold=.1,comparison_hours=8,basis='central'))
-        self.assertEqual([row[-1] for row in rows[2:]],['True','False','True'])
+        self.assertEqual([row[rows[1].index('excluded_low_effort')] for row in rows[2:]],['True','False','True'])
         self.assertEqual(sum(json.loads(row[12])['total'] for row in rows[2:]),300)
         self.assertEqual(self.view()['sensitivity']['8']['eligible_dates'],3)
 
@@ -121,6 +154,43 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(report['full_days']['8']['excluded_dates'],0)
         self.assertEqual(report['full_days']['8']['eligible_dates_before_filter'],2)
         self.assertEqual(report['full_days']['8']['scenarios']['central']['average'],2)
+
+    def test_both_methods_share_assessments_cohort_and_safe_exports(self):
+        for item,hours in zip(self.doc['work_items'],[10,18]):
+            item['effort'].update(hours_low=hours/2,hours_central=hours,hours_high=hours*2)
+        eng.import_assessment(self.db,self.doc,'UTC')
+        self.db.execute('INSERT INTO session_topics VALUES (?,?,?,?,?,?)',('Claude Code','private-human-session','Example','','','fixture'))
+        inputs=[]
+        for date,hours in [('2026-01-01',1),('2026-01-02',9)]:
+            start=dt.datetime.fromisoformat(date+'T09:00:00+00:00')
+            for n in range(hours*12):
+                inputs.append(dict(type='user',uuid=date+'-'+str(n),timestamp=(start+dt.timedelta(minutes=5*n)).isoformat(),sessionId='private-human-session',
+                                   isSidechain=False,userType='external',entrypoint='cli',origin=dict(kind='human'),turnOrigin='human',
+                                   message=dict(role='user',content='PRIVATE SYNTHETIC PROMPT')))
+        path=self.root/'private-inputs.jsonl';path.write_text(''.join(json.dumps(row)+'\n' for row in inputs))
+        human_inputs.save(self.db,path,'Claude Code',inputs)
+        result=self.view(provider='Codex',projects=['Example'])
+        timer=result['message_timer'];matched=timer['matched_fixed']['8']
+        self.assertEqual(timer['cohort']['dates'],['2026-01-01','2026-01-02'])
+        self.assertEqual(matched['scenarios']['central']['average'],1.75)
+        self.assertEqual(matched['scenarios']['central']['active_date_estimated_hours'],28)
+        self.assertAlmostEqual(timer['sensitivity']['supported']['5']['scenarios']['central']['pooled'],2.8)
+        self.assertAlmostEqual(timer['sensitivity']['supported']['5']['scenarios']['central']['daily_mean'],6)
+        self.assertEqual(result['sensitivity']['8']['eligible_dates'],3)
+        self.assertEqual(result['sensitivity']['8']['scenarios']['central']['average'],28/24)
+        self.assertEqual(timer['weekly'][0]['matched_fixed']['8']['scenarios']['central']['average'],1.75)
+        self.assertEqual(timer['full_days']['matched_fixed']['8']['scenarios']['central']['average'],1.75)
+        public=eng.export_report(result);serialized=json.dumps(public);csv_text=eng.csv_report(public)
+        for secret in ['PRIVATE SYNTHETIC PROMPT','private-human-session',str(path)]:
+            self.assertNotIn(secret,serialized);self.assertNotIn(secret,csv_text)
+        csv_rows=list(csv.reader(io.StringIO(csv_text)))
+        self.assertEqual(json.loads(csv_rows[0][1])['message_timer'],public['message_timer'])
+        self.assertTrue(json.loads(csv_rows[2][csv_rows[1].index('message_timer_json')])['in_cohort'])
+        self.assertEqual(sum(json.loads(row[12])['total'] for row in csv_rows[2:]),300)
+        # The source may disappear, but retained input metadata and its limitation survive.
+        path.unlink();retained=self.view()['message_timer']
+        self.assertAlmostEqual(retained['sensitivity']['supported']['5']['scenarios']['central']['pooled'],2.8)
+        self.assertGreater(retained['coverage']['missing_sources'],0)
     def test_unmapped_project_keeps_scope_unknown(self):
         self.db.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',event('unmapped','2026-01-03T14:00:00Z','Codex','local','unmapped','model',False,dict(input_tokens=1,output_tokens=0)))
         eng.import_assessment(self.db,self.doc,'UTC')
@@ -175,11 +245,60 @@ class EngineeringTests(unittest.TestCase):
         for invalid in (float('nan'),float('inf'),-1,True,100):
             bad=copy.deepcopy(changed);bad['version']=3;bad['work_items'][0]['effort']['hours_low']=invalid
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):eng.import_assessment(self.db,bad,'UTC')
-    def test_total_hours_cannot_overflow_even_when_individual_values_are_finite(self):
+    def test_total_hours_are_clamped_before_finite_individual_values_are_summed(self):
         for item in self.doc['work_items']:
             item['effort'].update(hours_low=1e308,hours_central=1e308,hours_high=1e308)
-        with self.assertRaisesRegex(ValueError,'combined'):
-            eng.import_assessment(self.db,self.doc,'UTC')
+        eng.import_assessment(self.db,self.doc,'UTC')
+        result=self.view()
+        self.assertEqual(result['sensitivity']['8']['scenarios']['central']['total_estimated_hours'],20000)
+        self.assertEqual(len(result['clamping']['effort']),6)
+        self.assertEqual(eng.latest(self.db),self.doc,'Clamping must not rewrite immutable original estimates')
+        self.assertEqual(result['days'][0]['items'][0]['original_hours'],dict(low=1e308,central=1e308,high=1e308))
+
+    def test_extreme_effort_serializes_preview_and_exports_with_explicit_caps(self):
+        from app import ReportPreviews
+        self.doc['work_items'][0]['effort'].update(hours_low=1e308,hours_central=1e308,hours_high=1e308)
+        eng.import_assessment(self.db,self.doc,'UTC')
+        inputs=[dict(type='user',uuid='overflow-input',sessionId='private-overflow-chat',timestamp='2026-01-01T13:00:00Z',origin=dict(kind='human'),message=dict(role='user',content='PRIVATE_OVERFLOW_PROMPT'))]
+        path=self.root/'overflow.jsonl';path.write_text(''.join(json.dumps(row)+'\n' for row in inputs))
+        human_inputs.save(self.db,path,'Claude Code',inputs)
+        result=self.view()
+        try:identifier=ReportPreviews().remember(result)
+        except ValueError:self.fail('Finite imported effort must produce a serializable displayed report')
+        self.assertEqual(len(identifier),64)
+        self.assertEqual(result['days'][0]['hours'],dict(low=10000,central=10000,high=10000))
+        self.assertEqual(result['days'][0]['clamped_effort'],dict(low=1,central=1,high=1))
+        self.assertEqual(result['clamping']['effort_hours_limit'],10000)
+        self.assertEqual(result['clamping']['effort'][1],dict(date='2026-01-01',scenario='central',original_hours=1e308,applied_hours=10000))
+        timer=result['message_timer'];self.assertTrue(timer['clamping']['applied'])
+        self.assertEqual(timer['sensitivity']['supported']['5']['scenarios']['central']['pooled'],1000)
+        public=eng.export_report(result)
+        self.assertIn('clamping',public)
+        self.assertEqual(public['clamping'],result['clamping'])
+        self.assertIn('clamped_effort',public['days'][0])
+        self.assertEqual(public['days'][0]['clamped_effort'],dict(low=1,central=1,high=1))
+        csv_rows=list(csv.reader(io.StringIO(eng.csv_report(public))))
+        self.assertIn('clamping',json.loads(csv_rows[0][1]))
+        self.assertEqual(json.loads(csv_rows[0][1])['clamping'],public['clamping'])
+        self.assertIn('clamped_effort_json',csv_rows[1])
+        self.assertEqual(json.loads(csv_rows[2][csv_rows[1].index('clamped_effort_json')]),public['days'][0]['clamped_effort'])
+        self.assertNotIn('private-overflow-chat',eng.encoded(public))
+        self.assertNotIn('PRIVATE_OVERFLOW_PROMPT',eng.encoded(public))
+
+    def test_effort_cap_boundaries_unknowns_and_scope(self):
+        self.doc['work_items'][0]['effort'].update(hours_low=9999.5,hours_central=10000,hours_high=10000.5)
+        self.doc['day_reviews']=self.doc['day_reviews'][1:]
+        eng.import_assessment(self.db,self.doc,'UTC')
+        result=self.view(effort_threshold='0.50')
+        first=result['days'][0]
+        self.assertEqual(first['status'],'unknown');self.assertIsNone(first['hours']['central'])
+        self.assertEqual(first['known_item_hours'],dict(low=9999.5,central=10000,high=10000))
+        self.assertFalse(first['excluded_low_effort'])
+        self.assertEqual(first['clamped_effort'],dict(low=0,central=0,high=1))
+        self.assertEqual(result['clamping']['effort'],[dict(date='2026-01-01',scenario='high',original_hours=10000.5,applied_hours=10000)])
+        restricted=eng.view(self.db,self.config,dict(start='2026-01-02',end='2026-01-03'),cutoff='2026-01-04T00:00:00Z')
+        self.assertEqual(restricted['clamping']['effort'],[])
+        self.assertEqual(eng.template(self.db,'UTC')['work_items'][0]['effort']['hours_high'],10000.5)
 
     def test_shared_commit_accepts_disjoint_scopes_and_configuration_quality(self):
         (self.repo/'config.json').write_text('{"enabled":true}')
@@ -247,10 +366,17 @@ class EngineeringTests(unittest.TestCase):
 
     def test_share_exports_do_not_leak_private_evidence(self):
         self.doc['work_items'][0]['scope']='SECRET/customer';self.doc['work_items'][0]['effort']['evidence']=['SECRET/prompt']
+        private_session='PRIVATE_SESSION_CANARY'
+        self.db.execute('UPDATE events SET session=?',(private_session,))
+        self.db.execute('UPDATE session_topics SET session=?',(private_session,))
+        self.db.execute('INSERT INTO session_topics VALUES (?,?,?,?,?,?)',('Claude Code',private_session,'Example','','','fixture'))
+        inputs=[dict(type='user',uuid='PRIVATE_INPUT_CANARY',timestamp='2026-01-01T09:00:00Z',sessionId=private_session,origin=dict(kind='human'),message=dict(role='user',content='SECRET human body'))]
+        path=self.root/'private-inputs.jsonl';path.write_text(json.dumps(inputs[0])+'\n');human_inputs.save(self.db,path,'Claude Code',inputs)
         eng.import_assessment(self.db,self.doc,'UTC');report=self.view(projects=['Example'])
+        self.assertEqual(report['human_inputs']['events'][0]['session'],private_session)
         for private in (True,False):
             shared=eng.export_report(report,private);value=json.dumps(shared)+eng.csv_report(shared)
-            for secret in ('SECRET',self.first,str(self.repo),'session','me@example.test','Example'):
+            for secret in ('SECRET',self.first,str(self.repo),private_session,'PRIVATE_INPUT_CANARY','me@example.test','Example'):
                 self.assertNotIn(secret,value)
             self.assertEqual(shared['privacy_mode'],private);self.assertEqual(shared['selection']['project_count'],1)
     def test_collector_does_not_execute_configured_signature_helpers(self):
