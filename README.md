@@ -33,12 +33,17 @@ The server binds to loopback. Keep it local; it has no authentication. `data/`, 
 
 ## Verify
 
+All tests live in `test/`. Run the suites from the repository root:
+
 ```sh
 python3 -m unittest -v
-node test_dashboard.cjs
+node test/test_dashboard.cjs
+node test/test_engineering_dashboard.cjs
+node test/test_engineering_table.cjs
 ```
 
 Node is only needed for the optional dashboard tests, not to run the app.
+Run one Python module with, for example, `python3 -m unittest test.test_message_timer -v`.
 
 Tests cover repeated and copied histories, streaming updates, subagents, cache accounting, cumulative legacy counters, incomplete writes, and timezone boundaries.
 
@@ -84,7 +89,7 @@ Models use the recorded coordinator profile. CLI results lack per-response times
 
 The engineering panel combines versioned manual scope estimates, explicit local Git snapshots, raw-counter reconciliation, agent activity evidence and scoped quality reviews. Low/central/high xEngineer scenarios compare delivered scope against a conventional engineer's 4/8/12-hour comparison day; they are not measured personal productivity multipliers. Unknown dates remain unknown, reviewed zero-delivery dates stay in the denominator by default, and the current partial day has a full-day-only comparison. Enable **Ignore low-effort days** and choose a 0.00×–0.50× cutoff to omit assessed days below it from effort calculations; the default cutoff is 0.10×. Usage and daily evidence retain all dates.
 
-Start with **Local assessments and evidence** in the dashboard. Repository observation is an explicit local-only action; normal token sync never fetches repositories or calls a reviewer. See [the data contract and workflow](docs/engineering-evidence.md) for configuration, schema examples, attribution rules, quality/test evidence and privacy exports. Run `node test_engineering_dashboard.cjs` alongside the existing verification commands.
+Start with **Local assessments and evidence** in the dashboard. Repository observation is an explicit local-only action; normal token sync never fetches repositories or calls a reviewer. See [the data contract and workflow](docs/engineering-evidence.md) for configuration, schema examples, attribution rules, quality/test evidence and privacy exports.
 
 The panel compares **Fixed-day equivalent** and **Message-timer equivalent** side by side using the same assessed dates with supported human-input evidence. The timer unions overlapping input windows across chats, offers 2/5/10-minute idle assumptions, and headlines total effort divided by total modeled chat hours. Its daily mean is shown separately. Explicit human-origin metadata is required; ambiguous inputs are an optional sensitivity, and missing time is never replaced with assumed work hours. The original full fixed-day summary remains visible even when timer evidence is unavailable. Sync imports compact input provenance without storing prompt bodies in the new index.
 
