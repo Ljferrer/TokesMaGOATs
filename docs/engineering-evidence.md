@@ -154,3 +154,5 @@ Explicit identity relationships survive copied response observations, regardless
 Raw-only observations are global across reconciled sources, even with a date/project selection. The dashboard and PNG retain that qualification; CSV metadata includes non-day usage and activity coverage, parser version and limitations. These observations do not increase retained ledger totals until normal sync imports them.
 
 Legacy delta verification requires valid counters in the current cumulative observation and its predecessor (the first observation uses an implicit zero baseline). Streaming validity follows observations at the retained maximum; a valid smaller value cannot validate a larger normalized placeholder. Parser-version changes rebuild provenance on the next sync while preserving retained ledger identities and totals.
+
+Routine dashboard reports omit per-commit full file inventories. Use **Load next assessment version** to inspect complete retained repository snapshots; assessment validation continues to use those complete snapshots.

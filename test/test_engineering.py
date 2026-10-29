@@ -53,6 +53,18 @@ class EngineeringTests(unittest.TestCase):
                     day_reviews=[dict(date='2026-01-'+day,status='assessed',rationale='All retained integrations reviewed; zero can include useful branch work',evidence=['review:'+day]) for day in ('01','02','03')])
     def view(self,**filters):
         return eng.view(self.db,self.config,dict(start='2026-01-01',end='2026-01-03',**filters),cutoff='2026-01-04T00:00:00Z')
+    def test_dashboard_integrations_omit_validation_inventory(self):
+        eng.import_assessment(self.db, self.doc, 'UTC')
+        with self.db as db:
+            before = eng.snapshots_for(db, self.doc['snapshots'])
+            report = eng.view(db, self.config, {})
+            commits = [commit for day in report['days'] for integration in day['integrations'] for commit in integration['commits']]
+            self.assertTrue(commits)
+            self.assertTrue(all('tree_files' not in commit for commit in commits))
+            self.assertEqual(eng.snapshots_for(db, self.doc['snapshots']), before)
+            self.assertTrue(any(c['tree_files'] for snap in before.values() for i in snap['integrations'] for c in i['commits']))
+            eng.validate_assessment(db, self.doc, 'UTC')
+
     def test_synthetic_acceptance_and_sensitivity(self):
         eng.import_assessment(self.db,self.doc,'UTC'); result=self.view()
         s=result['sensitivity']['8']; c=s['scenarios']['central']
@@ -450,6 +462,56 @@ class ActivityTests(unittest.TestCase):
         with connect(self.db) as db:
             usage,events,provenance=ev.accounting(db,filters,self.config['timezone'],cutoff='2026-12-01T00:00:00Z')
             return usage,ev.activity(db,filters,self.config['timezone'],events,provenance,'2026-12-01T00:00:00Z')
+    def test_activity_timestamp_work_is_independent_of_displayed_days(self):
+        rows = []
+        for day in range(1, 29):
+            rows.extend([dict(type='event_msg', timestamp=f'2026-01-{day:02}T12:00:00Z', payload=dict(type='task_started')),
+                         self.response(str(day), f'2026-01-{day:02}T12:00:01Z'),
+                         dict(type='event_msg', timestamp=f'2026-01-{day:02}T12:00:02Z', payload=dict(type='task_completed'))])
+        self.write('root.jsonl', rows);sync(self.db, self.config)
+        with connect(self.db) as db:
+            _, events, provenance = ev.accounting(db, {}, 'UTC', '2026-12-01T00:00:00Z')
+            counts = []
+            for end in ('2026-01-01', '2026-01-28'):
+                with patch.object(ev, 'instant', wraps=ev.instant) as parse:
+                    result = ev.activity(db, {'start':'2026-01-01', 'end':end}, 'UTC', events, provenance, '2026-12-01T00:00:00Z')
+                    counts.append(parse.call_count)
+                self.assertEqual(len(result['days']), int(end[-2:]))
+                for day in result['days'].values():
+                    self.assertEqual(day['task_span_peak'], 1)
+                    self.assertEqual(day['responding_density'], {'60':1,'300':1,'600':1})
+            self.assertLess(counts[1], counts[0] * 2)
+
+    def test_partitioned_activity_clips_cutoff_and_retains_midnight_context(self):
+        for identity, begin, response in [('early','2026-01-01T23:59:00Z','2026-01-01T23:59:50Z'),
+                                          ('current','2026-01-02T00:00:00Z','2026-01-02T00:00:10Z'),
+                                          ('boundary','2026-01-02T00:00:30Z','2026-01-02T00:00:30Z')]:
+            reply = self.response(identity, response);reply['payload']['thread_id'] = identity
+            self.write(identity+'.jsonl', [dict(type='session_meta', payload=dict(id=identity)),
+                dict(type='event_msg', timestamp=begin, payload=dict(type='task_started')), reply,
+                dict(type='event_msg', timestamp='2026-01-02T00:01:00Z', payload=dict(type='task_completed'))])
+        sync(self.db, self.config)
+        with connect(self.db) as db:
+            _, events, provenance = ev.accounting(db, {}, 'UTC', '2026-01-02T00:00:30Z')
+            result = ev.activity(db, {'start':'2026-01-02','end':'2026-01-02'}, 'UTC', events, provenance, '2026-01-02T00:00:30Z')
+            self.assertEqual(list(result['days']), ['2026-01-02'])
+            day = result['days']['2026-01-02']
+            self.assertEqual(day['task_span_peak'], 2)
+            self.assertEqual(day['responding_density'], {'60':2,'300':2,'600':2})
+            empty = ev.activity(db, {'start':'2026-01-03','end':'2026-01-03'}, 'UTC', events, provenance, '2026-01-02T00:00:30Z')
+            self.assertEqual(empty['days'], {})
+
+    def test_existing_provenance_tables_gain_source_indexes(self):
+        with connect(self.db) as db:
+            for name, in db.execute("SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND tbl_name IN ('response_sources','legacy_origins')").fetchall():
+                db.execute('DROP INDEX '+name)
+            ev.init(db)
+            for query in ("SELECT event_id FROM response_sources WHERE source='x' AND granularity='legacy_delta'",
+                          "DELETE FROM response_sources WHERE source='x'", "SELECT event_id FROM legacy_origins WHERE source='x'"):
+                plan = ' '.join(row[3] for row in db.execute('EXPLAIN QUERY PLAN '+query))
+                self.assertIn('SEARCH', plan)
+                self.assertNotIn('SCAN', plan)
+
     def test_maxima_earliest_accounting_cross_midnight_and_retention(self):
         later=self.response('r','2026-01-02T00:00:10Z',out=8);earlier=self.response('r','2026-01-01T23:59:50Z')
         self.write('a.jsonl',[later]);path=self.write('b.jsonl',[earlier,later]);sync(self.db,self.config)
@@ -701,6 +763,10 @@ class ActivityTests(unittest.TestCase):
         with connect(self.db) as db:report=eng.view(db,self.config,{},cutoff='2026-03-10T00:00:00Z')
         self.assertEqual(report['activity']['days']['2026-03-08']['task_span_peak'],2)
         self.assertEqual(report['activity']['days']['2026-03-09']['task_span_peak'],3)
+        root = self.root/'logs/root.jsonl'
+        root.write_text(root.read_text().replace('2026-03-09T07:00:00Z', '2026-03-09T07:30:00Z'))
+        sync(self.db, self.config)
+        self.assertEqual(self.evidence()[1]['days']['2026-03-09']['task_span_peak'],4)
 
     def test_fall_dst_day_preserves_last_local_hour(self):
         self.config['timezone']='America/Los_Angeles'
