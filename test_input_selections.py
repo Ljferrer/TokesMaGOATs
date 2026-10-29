@@ -6,6 +6,9 @@ import tempfile
 import unittest
 
 import input_selections as selections
+import human_inputs
+import message_timer
+from test_human_inputs import codex_input, codex_meta, codex_start
 
 
 CLASSIFIER = 'human-inputs-v1'
@@ -265,6 +268,215 @@ class InputSelectionTests(unittest.TestCase):
                 result = self.resolve(known=[dict(original, **change)])
                 self.assertEqual(result['valid_ids'], [])
                 self.assertEqual(result['changed_ids'], [self.a['id']])
+
+
+class CollectedInputSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.db = sqlite3.connect(':memory:')
+        self.addCleanup(self.db.close)
+        self.db.execute('CREATE TABLE session_topics (provider TEXT, session TEXT, project TEXT)')
+        human_inputs.init(self.db)
+        selections.init(self.db)
+        self.save_source('supported', '2026-01-01T08:00:00Z', message_id='supported', human=True)
+        self.filters = dict(start='2026-01-01', end='2026-01-01', input_population='selected')
+        self.cutoff = '2026-01-02T00:00:00Z'
+        self.days = [dict(date='2026-01-01', eligible=True, status='assessed', partial_day=False,
+                          hours=dict(low=2, central=2, high=2))]
+
+    def save_source(self, name, original_time, *, message_id='native', canonical_id='canonical',
+                    inherited=False, human=False):
+        rows = [codex_meta(), codex_start(), codex_input(
+            message_id, timestamp='2026-01-01T12:00:00Z', original_time=original_time,
+            canonical_id=canonical_id if message_id != 'supported' else None,
+            inherited=inherited, human=human)]
+        rows[-1]['payload']['internal_chat_message_metadata_passthrough']['create_time'] = original_time
+        path = self.root / (name + '.jsonl')
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        human_inputs.save(self.db, path, 'Codex', rows)
+        return path
+
+    def choose(self):
+        inventory = human_inputs.inventory(self.db)
+        key = next(e['id'] for e in inventory['events'] if e['classification'] == 'ambiguous')
+        saved = selections.save(self.db, dict(base_version=0, entries=[dict(id=key)]),
+                                inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        return key, saved
+
+    def report(self):
+        inventory = human_inputs.inventory(self.db)
+        human = human_inputs.select(self.db, self.filters, 'UTC', self.cutoff, retained=inventory)
+        resolution = selections.resolve(self.db, inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        human['selection'] = resolution
+        return resolution, message_timer.build(self.days, human, 'UTC', self.filters, self.cutoff)
+
+    def assert_chosen_timer(self, key, saved, *, valid):
+        resolution, timer = self.report()
+        self.assertEqual(selections.get(self.db), saved)
+        self.assertEqual(resolution['ids'], [key])
+        self.assertEqual(timer['selection']['ids'], [key])
+        self.assertEqual(timer['selection']['version'], saved['version'])
+        self.assertEqual(timer['cohort']['dates'], ['2026-01-01'])
+        if valid:
+            self.assertEqual(resolution['valid_ids'], [key])
+            self.assertEqual(resolution['warnings'], [])
+        else:
+            self.assertEqual(resolution['valid_ids'], [])
+            self.assertIn(key, resolution['changed_ids'] + resolution['invalid_ids'])
+            self.assertEqual(resolution['missing_ids'], [])
+            self.assertTrue(resolution['warnings'])
+            self.assertEqual(timer['selection']['warnings'], resolution['warnings'])
+        for timeout in (2, 5, 10):
+            with self.subTest(timeout=timeout):
+                minutes = timeout * (2 if valid else 1)
+                self.assertAlmostEqual(timer['sensitivity']['selected'][str(timeout)]['denominator_hours'], minutes / 60)
+                self.assertAlmostEqual(timer['sensitivity']['selected'][str(timeout)]['scenarios']['central']['pooled'], 120 / minutes)
+                self.assertAlmostEqual(timer['days'][0]['hours']['selected'][str(timeout)], minutes / 60)
+        self.assertEqual(timer['days'][0]['selected_ambiguous_ids'], [key] if valid else [])
+
+    def check_original_time_conflict(self, first, second):
+        self.save_source('first', '2026-01-01T' + first + 'Z')
+        key, saved = self.choose()
+        self.assert_chosen_timer(key, saved, valid=True)
+        self.save_source('second', '2026-01-01T' + second + 'Z')
+        self.assert_chosen_timer(key, saved, valid=False)
+
+    def test_collected_later_conflicting_original_time_invalidates_saved_choice(self):
+        self.check_original_time_conflict('09:00:00', '10:00:00')
+
+    def test_collected_earlier_conflicting_original_time_invalidates_saved_choice(self):
+        self.check_original_time_conflict('10:00:00', '09:00:00')
+
+    def test_collected_same_source_conflicting_original_time_invalidates_saved_choice(self):
+        path = self.save_source('growing', '2026-01-01T09:00:00Z')
+        key, saved = self.choose()
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows.append(codex_input('native', timestamp='2026-01-01T12:00:00Z',
+                                original_time='2026-01-01T10:00:00Z',
+                                canonical_id='canonical', human=False))
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        human_inputs.save(self.db, path, 'Codex', rows)
+        self.assert_chosen_timer(key, saved, valid=False)
+
+    def test_collected_alias_enrichment_does_not_hide_original_time_conflicts(self):
+        self.save_source('native', '2026-01-01T09:00:00Z', canonical_id=None)
+        key, saved = self.choose()
+        self.assert_chosen_timer(key, saved, valid=True)
+        self.save_source('canonical', '2026-01-01T10:00:00Z')
+        self.assert_chosen_timer(key, saved, valid=False)
+
+    def test_conflicting_original_input_cannot_be_selected_again_after_reset(self):
+        self.save_source('first', '2026-01-01T09:00:00Z')
+        key, saved = self.choose()
+        self.save_source('second', '2026-01-01T10:00:00Z')
+        inventory = human_inputs.inventory(self.db)
+        reset = selections.save(self.db, dict(base_version=1, entries=[]), inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        with self.assertRaises(ValueError):
+            selections.save(self.db, dict(base_version=2, entries=[dict(id=key)]), inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        self.assertEqual(selections.get(self.db), reset)
+
+    def test_collected_equivalent_original_offsets_preserve_saved_choice(self):
+        self.save_source('utc', '2026-01-01T09:00:00Z')
+        key, saved = self.choose()
+        self.save_source('offset', '2026-01-01T01:00:00-08:00')
+        self.assert_chosen_timer(key, saved, valid=True)
+
+    def test_collected_inherited_replay_time_does_not_conflict_with_original(self):
+        self.save_source('original', '2026-01-01T09:00:00Z')
+        key, saved = self.choose()
+        self.save_source('replay', '2026-01-01T10:00:00Z', inherited=True)
+        self.assert_chosen_timer(key, saved, valid=True)
+
+    def test_alias_enrichment_preserves_saved_identity_through_source_loss_and_refresh(self):
+        original = self.save_source('native', '2026-01-01T09:00:00Z', canonical_id=None)
+        key, saved = self.choose()
+        self.assertEqual(key, 'Codex:native')
+        self.save_source('canonical', '2026-01-01T09:00:00Z')
+        self.assert_chosen_timer(key, saved, valid=True)
+        original.unlink()
+        self.assert_chosen_timer(key, saved, valid=True)
+        self.save_source('native', '2026-01-01T09:00:00Z', message_id='canonical', canonical_id=None)
+        self.save_source('canonical', '2026-01-01T09:00:00Z', message_id='canonical', canonical_id=None)
+        inventory = human_inputs.inventory(self.db)
+        self.assertEqual([e['id'] for e in inventory['events'] if e['classification']=='ambiguous'], [key])
+        self.assert_chosen_timer(key, saved, valid=True)
+        selections.save(self.db, dict(base_version=1, entries=[]), inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        restored = selections.save(self.db, dict(base_version=2, entries=saved['entries']), inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        self.assert_chosen_timer(key, restored, valid=True)
+
+    def test_canonical_first_identity_survives_later_provider_representation(self):
+        self.save_source('canonical', '2026-01-01T09:00:00Z')
+        key, saved = self.choose()
+        self.assertEqual(key, 'Codex:canonical')
+        self.save_source('provider', '2026-01-01T09:00:00Z', canonical_id=None)
+        self.assert_chosen_timer(key, saved, valid=True)
+
+    def test_pre_registry_source_metadata_bootstraps_without_changing_saved_identity(self):
+        self.save_source('original', '2026-01-01T09:00:00Z', canonical_id=None)
+        key, saved = self.choose()
+        self.db.commit()
+        self.db.execute('DROP TABLE IF EXISTS human_input_aliases')
+        human_inputs.init(self.db)
+        self.assertFalse(self.db.in_transaction)
+        self.assertEqual([e['id'] for e in human_inputs.inventory(self.db)['events'] if e['classification']=='ambiguous'], [key])
+        self.save_source('new-canonical', '2026-01-01T09:00:00Z')
+        self.assert_chosen_timer(key, saved, valid=True)
+        self.assertEqual([e['id'] for e in human_inputs.inventory(self.db)['events'] if e['classification']=='ambiguous'], [key])
+
+    def check_merged_alias_families(self, first, second):
+        for key in (first, second):
+            self.save_source(key, '2026-01-01T09:00:00Z', message_id=key, canonical_id=None)
+        inventory = human_inputs.inventory(self.db)
+        chosen = 'Codex:' + second
+        stable = 'Codex:' + first
+        saved = selections.save(self.db, dict(base_version=0, entries=[dict(id=chosen)]),
+                                inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        self.save_source('bridge', '2026-01-01T09:00:00Z', message_id=second, canonical_id=first)
+        self.assert_chosen_timer(chosen, saved, valid=True)
+        resolution, timer = self.report()
+        self.assertEqual(resolution['resolved_ids'], {chosen:stable})
+        self.assertEqual(timer['selection']['resolved_ids'], {chosen:stable})
+        inventory = human_inputs.inventory(self.db)
+        both = selections.save(self.db, dict(base_version=1, entries=saved['entries'] + [dict(id=stable)]),
+                               inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        resolution, timer = self.report()
+        self.assertEqual(resolution['valid_ids'], sorted([chosen, stable]))
+        self.assertEqual(resolution['resolved_ids'], {chosen:stable, stable:stable})
+        self.assertEqual(timer['selection']['ids'], sorted([chosen, stable]))
+        self.assertEqual(timer['days'][0]['selected_ambiguous_ids'], sorted([chosen, stable]))
+        self.assertEqual(timer['days'][0]['included_inputs']['selected'], 2)
+        self.assertAlmostEqual(timer['sensitivity']['selected']['5']['denominator_hours'], 10 / 60)
+        self.assertEqual(timer['selection']['label'], 'Supported + 1 user-included ambiguous inputs')
+        self.assertNotIn('"aliases":', json.dumps(timer))
+        bridge = self.root / 'bridge.jsonl'
+        bridge.write_text('')
+        human_inputs.save(self.db, bridge, 'Codex', [])
+        retained = human_inputs.inventory(self.db)
+        self.assertEqual([e['id'] for e in retained['events'] if e['classification']=='ambiguous'], [stable])
+        self.assertEqual(self.report()[0]['resolved_ids'], {chosen:stable, stable:stable})
+        selections.save(self.db, dict(base_version=2, entries=[]), inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        selections.save(self.db, dict(base_version=3, entries=both['entries']), inventory['events'], human_inputs.CLASSIFIER_VERSION)
+        self.assertEqual(self.report()[0]['resolved_ids'], {chosen:stable, stable:stable})
+
+    def test_merging_preexisting_alias_families_preserves_both_choices_and_counts_one_input(self):
+        self.check_merged_alias_families('first', 'second')
+
+    def test_reverse_alias_family_arrival_keeps_first_durable_identity(self):
+        self.check_merged_alias_families('second', 'first')
+
+    def test_transitive_alias_enrichment_survives_replacement_of_the_original_representation(self):
+        rows = [codex_meta(), codex_start(),
+                codex_input('middle', original_time='2026-01-01T09:00:00Z', canonical_id='first', human=False),
+                codex_input('last', original_time='2026-01-01T09:00:00Z', canonical_id='middle', human=False)]
+        path = self.root / 'chain.jsonl'
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        human_inputs.save(self.db, path, 'Codex', rows)
+        key, saved = self.choose()
+        self.assertEqual(key, 'Codex:first')
+        self.save_source('chain', '2026-01-01T09:00:00Z', message_id='last', canonical_id=None)
+        self.assert_chosen_timer(key, saved, valid=True)
 
 
 if __name__ == '__main__':

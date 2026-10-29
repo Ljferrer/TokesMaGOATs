@@ -542,6 +542,21 @@ class HumanInputsTests(unittest.TestCase):
         self.assertEqual(instant(event['timestamp']), instant(BASE_TIME))
         self.assertEqual(event['classification'], 'supported_human')
 
+    def test_only_inherited_copies_remain_excluded_despite_owner_and_time_disagreements(self):
+        for owner, original in [('copy-a', BASE_TIME), ('copy-b', '2026-01-01T10:00:00Z')]:
+            self.save([codex_meta(owner), codex_input('copied', inherited=True, original_time=original)])
+        event = human_inputs.inventory(self.db)['events'][0]
+        self.assertEqual(event['classification'], 'excluded')
+        self.assertEqual(event['reason'], 'Inherited or copied context')
+
+    def test_non_replayed_claude_records_with_same_identity_cannot_disagree_on_time(self):
+        for timestamp in [BASE_TIME, '2026-01-01T10:00:00Z']:
+            self.save([claude_input('conflict', timestamp)], 'Claude Code')
+        event = human_inputs.inventory(self.db)['events'][0]
+        self.assertTrue(event['provenance_conflict'])
+        self.assertEqual(event['classification'], 'ambiguous')
+        self.assertEqual(event['reason'], 'Conflicting original input timestamps')
+
     def test_task_start_without_an_actual_input_never_seeds_a_timer(self):
         self.save([codex_meta(), codex_start()])
         report = self.select()

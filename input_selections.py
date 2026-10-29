@@ -54,17 +54,19 @@ def reference(event, classifier_version):
 def known_inputs(events, classifier_version):
     result = {}
     for event in events:
-        key = event.get('id')
-        if not isinstance(key, str) or not key:
-            continue
-        try:
-            item = dict(classification=event['classification'], reference=reference(event, classifier_version))
-        except (ValueError, TypeError, KeyError, AttributeError):
-            item = None
-        if key in result and result[key] != item:
-            result[key] = None
-        elif key not in result:
-            result[key] = item
+        for key in set(event.get('aliases', [])) | {event.get('id')}:
+            if not isinstance(key, str) or not key:
+                continue
+            try:
+                item = None if event.get('provenance_conflict') else dict(
+                    classification=event['classification'], id=event['id'],
+                    reference=reference(dict(event, id=key), classifier_version))
+            except (ValueError, TypeError, KeyError, AttributeError):
+                item = None
+            if key in result and result[key] != item:
+                result[key] = None
+            elif key not in result:
+                result[key] = item
     return result
 
 
@@ -124,7 +126,7 @@ def resolve(db, known_events, classifier_version, version=None):
     known = known_inputs(known_events, classifier_version)
     result = dict(version=current['version'], ids=[entry['id'] for entry in current['entries']],
                   valid_ids=[], missing_ids=[], changed_ids=[], invalid_ids=[],
-                  classification='ambiguous', warnings=[])
+                  resolved_ids={}, classification='ambiguous', warnings=[])
     for entry in current['entries']:
         key = entry['id']
         if key not in known:
@@ -135,6 +137,7 @@ def resolve(db, known_events, classifier_version, version=None):
             category = 'changed_ids'
         else:
             category = 'valid_ids'
+            result['resolved_ids'][key] = known[key]['id']
         result[category].append(key)
     result.update(selected_count=len(result['ids']), valid_count=len(result['valid_ids']))
     reasons = {'missing_ids':'missing from retained input metadata',

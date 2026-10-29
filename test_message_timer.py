@@ -282,6 +282,36 @@ class MessageTimerTests(unittest.TestCase):
                             selection=dict(version=4, ids=['A']), input_population='selected')
         self.assertEqual(unresolved['sensitivity']['selected'], unresolved['sensitivity']['supported'])
 
+    def test_aliases_cannot_reintroduce_conflicted_or_non_ambiguous_inputs(self):
+        inputs = [input_at('2026-01-01T09:00:00Z', 'S'),
+                  input_at('2026-01-01T09:20:00Z', 'A', classification='ambiguous'),
+                  dict(input_at('2026-01-01T10:00:00Z', 'conflict', classification='ambiguous'), provenance_conflict=True),
+                  dict(input_at('2026-01-02T09:00:00Z', 'second', classification='supported_human'), provenance_conflict=True)]
+        chosen = ['old-S', 'old-A', 'old-conflict', 'old-second']
+        result = report([day('2026-01-01', 2), day('2026-01-02', 2)], inputs,
+                        selection=dict(ids=chosen, valid_ids=chosen,
+                                       resolved_ids=dict(zip(chosen, ['S', 'A', 'conflict', 'second']))))
+        self.assertEqual(result['selection']['valid_ids'], ['old-A'])
+        self.assertEqual(result['selection']['resolved_ids'], {'old-A':'A'})
+        self.assertEqual(result['selection']['invalid_ids'], ['old-S', 'old-conflict', 'old-second'])
+        self.assertEqual(result['cohort']['dates'], ['2026-01-01'])
+        self.assertEqual(rows(result)['2026-01-01']['selected_ambiguous_ids'], ['old-A'])
+        for population, minutes in [('supported', 5), ('selected', 10), ('inclusive', 10)]:
+            self.assertAlmostEqual(result['sensitivity'][population]['5']['denominator_hours'] * 60, minutes)
+        self.assertEqual(rows(result)['2026-01-02']['included_inputs'], dict(supported=0, selected=0, inclusive=0))
+
+    def test_multiple_saved_aliases_share_one_input_and_preserve_midnight_scope(self):
+        inputs = [input_at('2026-01-01T23:56:00Z', 'S'),
+                  input_at('2026-01-01T23:57:00Z', 'A', classification='ambiguous')]
+        result = report([day('2026-01-02', 2, partial=True)], inputs,
+                        start='2026-01-02', end='2026-01-02', cutoff='2026-01-02T00:02:00Z',
+                        selection=dict(ids=['old-A', 'A'], valid_ids=['old-A', 'A'], resolved_ids={'old-A':'A', 'A':'A'}))
+        self.assertEqual(result['selection']['in_scope_ids'], ['A', 'old-A'])
+        self.assertEqual(result['selection']['headline_scope_ids']['5'], ['A', 'old-A'])
+        self.assertEqual(result['selection']['label'], 'Supported + 1 user-included ambiguous inputs')
+        self.assertEqual(rows(result)['2026-01-02']['included_inputs']['selected'], 0)
+        self.assertAlmostEqual(result['sensitivity']['selected']['5']['denominator_hours'] * 60, 2)
+
     def test_choices_outside_cohort_and_applied_scope_do_not_expand_headline(self):
         dates = [day('2026-01-01', 2), day('2026-01-02', 20)]
         inputs = [input_at('2026-01-01T09:00:00Z', 'S'),

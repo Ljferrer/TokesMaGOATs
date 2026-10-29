@@ -18,6 +18,29 @@ def init(db):
     db.execute('''CREATE TABLE IF NOT EXISTS human_input_sources (
         source TEXT PRIMARY KEY, provider TEXT, stamp TEXT, source_hash TEXT,
         observed_at TEXT, classifier_version TEXT, body TEXT)''')
+    db.execute('CREATE TABLE IF NOT EXISTS human_input_aliases (alias TEXT PRIMARY KEY, identity TEXT NOT NULL)')
+
+
+def remember_identities(db, events):
+    """A richer representation may add aliases, but cannot rename an observed input."""
+    existing = {alias:(order, identity) for order, alias, identity in db.execute(
+        'SELECT rowid,alias,identity FROM human_input_aliases')}
+    ranks = {}
+    for order, identity in existing.values():
+        ranks[identity] = min(order, ranks.get(identity, order))
+    for event in deduplicate(events):
+        linked = {existing[alias][1] for alias in event['aliases'] if alias in existing}
+        identity = min(linked, key=lambda key:ranks[key]) if linked else event['id']
+        for old in linked - {identity}:
+            db.execute('UPDATE human_input_aliases SET identity=? WHERE identity=?', (identity, old))
+            for alias, (order, value) in list(existing.items()):
+                if value == old:
+                    existing[alias] = (order, identity)
+        for alias in event['aliases']:
+            if alias not in existing:
+                cursor = db.execute('INSERT INTO human_input_aliases VALUES (?,?)', (alias, identity))
+                existing[alias] = (cursor.lastrowid, identity)
+                ranks[identity] = min(cursor.lastrowid, ranks.get(identity, cursor.lastrowid))
 
 
 def mapping(value):
@@ -201,6 +224,11 @@ def save(db, path, provider, rows, source_stamp=None):
     source_hash = digest(path)
     if stamp(path) != expected:
         raise ValueError('Human-input history changed while reading; retry sync')
+    if not db.execute('SELECT 1 FROM human_input_aliases LIMIT 1').fetchone():
+        retained = [event for (body,) in db.execute('SELECT body FROM human_input_sources')
+                    for event in json.loads(body)['events']]
+        remember_identities(db, retained)
+    remember_identities(db, body['events'])
     db.execute('INSERT OR REPLACE INTO human_input_sources VALUES (?,?,?,?,?,?,?)',
                (str(path), provider, expected, source_hash, now(), CLASSIFIER_VERSION, json.dumps(body, sort_keys=True)))
 
@@ -223,15 +251,21 @@ def deduplicate(events):
     for group in groups.values():
         originals = [e for e in group if not e['inherited']]
         candidates = originals or group
-        original_times = [e for e in candidates if e['timestamp_basis'] != 'source_record_timestamp']
+        original_times = [e for e in candidates if e['timestamp_basis'] != 'source_record_timestamp' or e['provider'] == 'Claude Code']
         chosen = dict(min(original_times or candidates, key=lambda e:(e['timestamp'],e['session'],e['id'])))
         identity_priority = {'retained_message_id':0, 'provider_message_id':1, 'source_position':2}
         identity = min(candidates,key=lambda e:(identity_priority.get(e.get('identity_basis'),1),e['id']))
-        chosen['id'] = identity['id']
+        chosen['id'] = identity.get('stable_id', identity['id'])
+        chosen['aliases'] = sorted({alias for event in group for alias in event['aliases']})
         classes = {e['classification'] for e in candidates}
         owners = {e['session'] for e in candidates}
-        if len(owners) > 1 or ('excluded' in classes and len(classes) > 1):
+        time_conflict = bool(originals) and len({e['timestamp'] for e in original_times}) > 1
+        origin_conflict = bool(originals) and (len(owners) > 1 or ('excluded' in classes and len(classes) > 1))
+        chosen['provenance_conflict'] = time_conflict or origin_conflict
+        if origin_conflict:
             chosen.update(classification='ambiguous', reason='Conflicting original input provenance', mapping_session=None)
+        elif time_conflict:
+            chosen.update(classification='ambiguous', reason='Conflicting original input timestamps')
         elif 'supported_human' in classes:
             supported = next(e for e in candidates if e['classification']=='supported_human')
             chosen.update(classification='supported_human', reason=supported['reason'])
@@ -251,6 +285,10 @@ def inventory(db, sources=None):
                     carry_in_events=0, unmapped_events=0, outside_project_events=0, configured_roots=len(sources or []),
                     missing_roots=sum(not Path(s['path']).expanduser().exists() for s in sources or []),
                     boundary_context='unavailable', boundary_context_complete=False)
+    identities = dict(db.execute('SELECT alias,identity FROM human_input_aliases'))
+    identity_aliases = {}
+    for alias, identity in identities.items():
+        identity_aliases.setdefault(identity, []).append(alias)
     collected = []
     for source, expected, version, body_text in db.execute('SELECT source,stamp,classifier_version,body FROM human_input_sources'):
         body = json.loads(body_text)
@@ -269,12 +307,14 @@ def inventory(db, sources=None):
             event.update(classifier_version=version, source_classification=event['classification'], source_status=source_status)
             if version != CLASSIFIER_VERSION and event['classification'] == 'supported_human':
                 event.update(classification='ambiguous', reason='Retained input uses an older classifier version')
+            stable_id = next((identities[alias] for alias in event['aliases'] if alias in identities), event['id'])
+            event.update(stable_id=stable_id, aliases=sorted(set(event['aliases']) | set(identity_aliases.get(stable_id, []))))
             collected.append(event)
     topics = {(p,s):project for p,s,project in db.execute('SELECT provider,session,project FROM session_topics')}
     events = []
     for event in deduplicate(collected):
         project = topics.get((event['provider'],event['mapping_session'])) or None
-        public = {k:event[k] for k in ('id','provider','session','timestamp','timestamp_basis','classification','reason','classifier_version','source_classification','source_statuses')}
+        public = {k:event[k] for k in ('id','aliases','provider','session','timestamp','timestamp_basis','classification','reason','classifier_version','source_classification','source_statuses','provenance_conflict')}
         public.update(project=project, original_timestamp=event.get('original_timestamp'))
         events.append(public)
         coverage['selected_events'] += 1

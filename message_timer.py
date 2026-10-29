@@ -90,10 +90,15 @@ def build(days, human, timezone, filters, cutoff):
     resolution = human.get('selection', {})
     chosen_ids = set(resolution.get('ids', []))
     valid_ids = set(resolution.get('valid_ids', [])) & chosen_ids
-    invalid_ids = set(resolution.get('invalid_ids', [])) | {
-        event.get('id') for event in human.get('events', [])
-        if event.get('id') in valid_ids and event.get('classification') != 'ambiguous'}
+    resolved_ids = {key:resolution.get('resolved_ids', {}).get(key, key) for key in valid_ids}
+    invalid_events = {event.get('id') for event in human.get('events', [])
+                      if event.get('classification') != 'ambiguous' or event.get('provenance_conflict')}
+    invalid_ids = set(resolution.get('invalid_ids', [])) | {key for key, value in resolved_ids.items() if value in invalid_events}
     valid_ids -= invalid_ids | set(resolution.get('missing_ids', [])) | set(resolution.get('changed_ids', []))
+    resolved_ids = {key:resolved_ids[key] for key in valid_ids}
+    choices_by_input = {}
+    for key, identity in resolved_ids.items():
+        choices_by_input.setdefault(identity, []).append(key)
     points = {population: [] for population in POPULATIONS}
     inputs = {population: {} for population in POPULATIONS}
     chosen_inputs = {}
@@ -103,7 +108,7 @@ def build(days, human, timezone, filters, cutoff):
             rejected_projects += 1
             continue
         classification = event.get('classification')
-        if classification not in ('supported_human', 'ambiguous'):
+        if classification not in ('supported_human', 'ambiguous') or event.get('provenance_conflict'):
             continue
         try:
             time = instant(event['timestamp'])
@@ -121,10 +126,10 @@ def build(days, human, timezone, filters, cutoff):
             points['selected'].append(time)
             inputs['supported'].setdefault(key, time)
             inputs['selected'].setdefault(key, time)
-        elif key in valid_ids:
+        elif key in choices_by_input:
             # Selectors reference immutable input identities, not table positions.
-            if key not in chosen_inputs:
-                chosen_inputs[key] = time
+            if key not in inputs['selected']:
+                chosen_inputs.update((choice, time) for choice in choices_by_input[key])
                 points['selected'].append(time)
                 inputs['selected'][key] = time
     first_date = dt.date.fromisoformat(filters['start']) if filters.get('start') else min(
@@ -213,12 +218,13 @@ def build(days, human, timezone, filters, cutoff):
                                              if any(date in cohort_set for date in union_hours([time], timeout, start, end, zone)))
         outside_cohort[str(timeout)] = sorted(set(in_scope) - set(headline_scope[str(timeout)]))
     selection = dict(version=resolution.get('version', 0), ids=sorted(chosen_ids), valid_ids=sorted(valid_ids),
+                     resolved_ids=resolved_ids,
                      missing_ids=sorted(set(resolution.get('missing_ids', []))),
                      changed_ids=sorted(set(resolution.get('changed_ids', []))), invalid_ids=sorted(invalid_ids),
                      selected_count=len(chosen_ids), valid_count=len(valid_ids), classification='ambiguous',
                      in_scope_ids=sorted(in_scope), outside_scope_ids=sorted(valid_ids - set(in_scope)), in_scope_count=len(in_scope),
                      headline_scope_ids=headline_scope, outside_cohort_ids=outside_cohort,
-                     label=f'Supported + {len(in_scope)} user-included ambiguous inputs',
+                     label=f'Supported + {len({resolved_ids[key] for key in in_scope})} user-included ambiguous inputs',
                      warnings=list(resolution.get('warnings', [])),
                      limitations=['User inclusion does not change the ambiguous source classification or establish human origin.',
                                   'Within-headline-cohort windows may overlap existing time; counts are not additive durations.',

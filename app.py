@@ -388,6 +388,30 @@ def usage_view(db_path, config, filters, state):
     return dict(result,**after)
 
 
+class ReportPreviews:
+    """Bounded immutable share snapshots of displayed reports; exports persist separately."""
+    def __init__(self):
+        self._reports = {}
+        self._lock = threading.Lock()
+
+    def remember(self, report):
+        body = engineering.encoded(engineering.export_report(report))
+        identifier = hashlib.sha256(body.encode()).hexdigest()
+        with self._lock:
+            self._reports.pop(identifier, None)
+            self._reports[identifier] = body
+            while len(self._reports) > 32:
+                self._reports.pop(next(iter(self._reports)))
+        return identifier
+
+    def get(self, identifier):
+        engineering.require(isinstance(identifier, str) and re.fullmatch('[0-9a-f]{64}', identifier), 'Invalid report ID')
+        with self._lock:
+            body = self._reports.get(identifier)
+        engineering.require(body is not None, 'Displayed report expired or is unavailable; refresh the dashboard before exporting.')
+        return json.loads(body)
+
+
 class ImportState:
     """One background history scan shared by manual and automatic refresh."""
     def __init__(self, db_path, config):
@@ -471,6 +495,7 @@ def main():
         return
     with connect(db_path):pass
     state=ImportState(db_path,config)
+    previews=ReportPreviews()
     state.start()
 
     class Handler(BaseHTTPRequestHandler):
@@ -493,7 +518,9 @@ def main():
                     today=dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
                     if query.get('project'):filters['projects']=query['project']
                     filters=normalized_filters(filters,today)
-                    self.send(200,json.dumps(usage_view(db_path,config,filters,state)).encode())
+                    result=usage_view(db_path,config,filters,state)
+                    result['engineering']['report_id']=previews.remember(result['engineering'])
+                    self.send(200,json.dumps(result).encode())
                 except (ValueError,OverflowError) as error:
                     self.send(400,json.dumps({'error':str(error)}).encode())
             elif self.path == '/api/state':
@@ -536,11 +563,10 @@ def main():
                         document = json.loads(self.rfile.read(length))
                         with LOCK, connect(db_path) as db:
                             if self.path.endswith('/export'):
-                                engineering.exact_keys(document, ('filters','privacy'))
+                                engineering.exact_keys(document, ('report_id','privacy'))
                                 engineering.require(type(document['privacy']) is bool, 'privacy must be boolean')
-                                today = dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
-                                filters = normalized_filters(document['filters'], today)
-                                report = engineering.export_report(engineering.view(db, config, filters), bool(document.get('privacy', True)))
+                                report = previews.get(document['report_id'])
+                                report['privacy_mode'] = document['privacy']
                                 body = engineering.encoded(report)
                                 identifier = hashlib.sha256(body.encode()).hexdigest()
                                 db.execute('INSERT OR IGNORE INTO engineering_reports VALUES (?,?,?)', (identifier,report['cutoff'],body))

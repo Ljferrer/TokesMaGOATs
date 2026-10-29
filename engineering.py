@@ -521,14 +521,15 @@ def view(db, config, filters, cutoff=None):
         matched = [row for row in ordered if row['date'] in cohort]
         comparison['matched_fixed'] = {str(h):statistics_for(matched,h) for h in (4,8,12)}
     scoped_ids = {event['id'] for event in human['events']}
-    selected_ids = set(human['selection']['ids'])
+    selected_ids = set(human['selection']['ids']) | set(human['selection'].get('resolved_ids', {}).values())
     input_details = []
     for event in known['events']:
-        if event['id'] not in scoped_ids | selected_ids:
+        selected = event['id'] in selected_ids or bool(set(event.get('aliases', [])) & selected_ids)
+        if event['id'] not in scoped_ids and not selected:
             continue
         local_time = instant(event['timestamp']).astimezone(zone)
         input_details.append(dict(event, local_date=local_time.date().isoformat(), local_timestamp=local_time.isoformat(),
-                                  in_scope=event['id'] in scoped_ids, selected=event['id'] in selected_ids))
+                                  in_scope=event['id'] in scoped_ids, selected=selected))
     return dict(label='xEngineer — estimated delivery equivalent', baseline=BASELINE, disclaimer=DISCLAIMER,
                 selection=filters,
                 cutoff=cutoff, assessment_cutoff=document['cutoff'] if document else None, timezone=zone_name,

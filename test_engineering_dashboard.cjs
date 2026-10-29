@@ -9,7 +9,7 @@ const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Eleme
 const context=vm.createContext({document:{createElement:tag=>new Element(tag),querySelectorAll:()=>created.filter(node=>node.dataset.inputSelectionControl!==undefined)},Intl,$:get,short:n=>String(n),preferences:{privacy:false},monday:()=> '2025-12-29'});
 vm.runInContext(fs.readFileSync('engineering.js','utf8'),context);
 const stats={status:'partial',complete:false,assessed_dates:2,eligible_dates:3,denominator_hours:24,scenarios:Object.fromEntries(['low','central','high'].map(s=>[s,{minimum:null,maximum:null,median:null,average:null,total_estimated_hours:32}]))};
-context.data={engineering:{delivery_scope:'Independent delivery scope',repositories:[],timezone:'UTC',cutoff:'2026-01-03T15:00:00Z',assessment_cutoff:'2026-01-03T14:00:00Z',sensitivity:{8:stats},full_days:{8:{...stats,eligible_dates:2,scenarios:{central:{average:2}}}},usage:{days:{},raw_only_records:1,raw_only_tokens:35,raw_only_scope:'All reconciled sources; excluded from ledger totals until sync. Unknown counters make raw-only totals lower bounds.',limitations:[]},activity:{days:{},limitations:[]},baseline:'Conventional engineering',assumptions:[],days:[{date:'2026-01-03',status:'unknown',partial_day:true,eligible:true,hours:{low:null,central:null,high:null},unknown_items:['unestimated'],integrations:[],items:[{scope:'SECRET/customer',effort:{status:'unreviewed'},quality:[{quality_score:null,confidence:'low',final_day_scope:false,tests:[{classification:'present_only',result:'not_run',date:'2026-01-02',applies_to_delivered:true}]}]}]}],weekly:[{date:'2025-12-29',...stats}]}};
+context.data={engineering:{report_id:'a'.repeat(64),delivery_scope:'Independent delivery scope',repositories:[],timezone:'UTC',cutoff:'2026-01-03T15:00:00Z',assessment_cutoff:'2026-01-03T14:00:00Z',sensitivity:{8:stats},full_days:{8:{...stats,eligible_dates:2,scenarios:{central:{average:2}}}},usage:{days:{},raw_only_records:1,raw_only_tokens:35,raw_only_scope:'All reconciled sources; excluded from ledger totals until sync. Unknown counters make raw-only totals lower bounds.',limitations:[]},activity:{days:{},limitations:[]},baseline:'Conventional engineering',assumptions:[],days:[{date:'2026-01-03',status:'unknown',partial_day:true,eligible:true,hours:{low:null,central:null,high:null},unknown_items:['unestimated'],integrations:[],items:[{scope:'SECRET/customer',effort:{status:'unreviewed'},quality:[{quality_score:null,confidence:'low',final_day_scope:false,tests:[{classification:'present_only',result:'not_run',date:'2026-01-02',applies_to_delivered:true}]}]}]}],weekly:[{date:'2025-12-29',...stats}]}};
 get('engineeringHours').value='8';vm.runInContext('renderEngineering()',context);
 assert.match(get('engineeringReconciliation').textContent,/1 records.*35 tokens/);
 assert.match(get('engineeringReconciliation').textContent,/All reconciled sources.*excluded from ledger totals.*lower bounds/);
@@ -63,11 +63,16 @@ vm.runInContext('bindEngineering()',context);
   assert.match(share(get('engineeringDays')),/excluded from effort statistics/);
   context.activeFilters={start:'2026-01-01',end:'2026-01-03'};
   let exported;
+  const downloads=[];
   context.fetch=async(_,options)=>{exported=JSON.parse(options.body);return {ok:true,json:async()=>({id:'fixture',report:{},csv:''})}};
-  context.engineeringDownload=()=>{};
-  await get('engineeringJSON').onclick();
-  assert.equal(exported.filters.effort_threshold,'0.1','Export the applied cutoff, not the pending slider value');
-  assert.equal(exported.filters.comparison_hours,'8');
+  context.engineeringDownload=(text,name,type)=>downloads.push({text,name,type});
+  context.activeFilters={start:'2026-02-01',end:'2026-02-02',projects:['pending-project']};
+  for(const format of ['JSON','CSV']){
+    await get('engineering'+format).onclick();
+    assert.deepEqual(exported,{report_id:'a'.repeat(64),privacy:true},'Export exactly the displayed snapshot, independent of pending filters or slider values');
+    assert.equal(downloads.at(-1).text,format==='JSON'?'{}':'');
+    assert.equal(downloads.at(-1).type,format==='JSON'?'application/json':'text/csv');
+  }
   get('engineeringIgnoreDays').checked=false;await get('engineeringIgnoreDays').onchange();
   assert.equal(get('engineeringThreshold').disabled,true);
   assert.equal(vm.runInContext('engineeringSelection().effort_threshold',context),'');
@@ -83,6 +88,7 @@ vm.runInContext('bindEngineering()',context);
   const timerDay=(date,effort,duration,inC=true)=>({date,partial_day:false,in_cohort:inC,effort_status:effort===null?'unassessed':'assessed',effort_hours:{low:effort===null?null:effort/2,central:effort,high:effort===null?null:effort*2},exclusion_reason:inC?null:effort===null?'outside_token_active_scope':'no_supported_reference_timer',hours:{supported:{2:duration*.4,5:duration,10:duration*2},inclusive:{2:duration*.4,5:duration,10:duration*2}},ratios:Object.fromEntries(['supported','inclusive'].map(p=>[p,Object.fromEntries([2,5,10].map(t=>[t,{low:duration&&effort!==null?effort/2/duration:null,central:duration&&effort!==null?effort/duration:null,high:duration&&effort!==null?effort*2/duration:null}]))]))});
   const timer={method_version:'message-timer-v1',fixed_method_version:'fixed-day-v1',classifier_version:'human-inputs-v1',options:{effort_scenario:'central',idle_timeout:5,input_population:'supported'},cohort:{dates,token_active_dates:[...dates,'2026-01-03','2026-01-04'],eligible_after_filter_dates:[...dates,'2026-01-03','2026-01-04'],assessed_dates:[...dates,'2026-01-03'],unknown_dates:['2026-01-04'],no_supported_timer_dates:['2026-01-03'],low_effort_excluded_dates:[],excluded_assessed_hours:{low:8,central:16,high:32},excluded_known_item_hours:{low:1,central:2,high:4}},matched_fixed:fixed,sensitivity,joint,full_days:{dates,sensitivity,matched_fixed:fixed},weekly:[{date:'2025-12-29',dates,sensitivity,matched_fixed:fixed}],days:[timerDay(dates[0],10,1),timerDay(dates[1],18,9),timerDay('2026-01-03',16,0,false),timerDay('2026-01-04',null,1,false),timerDay('2026-01-05',null,2,false)],coverage:{retained_sources:4,current_sources:2,missing_sources:1,changed_sources:1,unsupported_sources:1,supported_human:12,ambiguous:2,excluded:3,carry_in_events:1,unmapped_events:1,outside_project_events:2,boundary_context:'retained_only'},reconciliation:{outside_cohort_dates:['2026-01-04','2026-01-05'],outside_token_active_dates:['2026-01-05'],input_only_dates:['2026-01-05'],supported_hours:{2:5.2,5:13,10:26},inclusive_hours:{2:6.2,5:15,10:28},outside_cohort_supported_hours:{2:1.2,5:3,10:6},outside_cohort_inclusive_hours:{2:1.2,5:3,10:6}},limitations:['Retained evidence can miss reading, reviews and other off-chat work.']};
   context.data.engineering.message_timer=timer;
+  context.data.engineering.report_id='b'.repeat(64);
   context.data.engineering.days=[10,18,16,null].map((effort,i)=>({date:'2026-01-0'+(i+1),eligible:true,partial_day:i===3,status:effort===null?'unknown':'assessed',hours:{low:effort===null?null:effort/2,central:effort,high:effort===null?null:effort*2},items:[],integrations:[],unknown_items:effort===null?['unestimated']:[]}));
   vm.runInContext('renderEngineering()',context);
   assert.equal(get('engineeringFixedValue').textContent,'1.75×');assert.equal(get('engineeringTimerValue').textContent,'2.8×');
@@ -107,8 +113,10 @@ vm.runInContext('bindEngineering()',context);
   await get('engineeringTimeout').onchange();
   assert.equal(saved.idle_timeout,'10');assert.equal(saved.input_population,'inclusive');assert.equal(saved.effort_scenario,'high');
   assert.equal(get('engineeringTimerValue').textContent,'2.8×');
+  for(const format of ['JSON','CSV']){await get('engineering'+format).onclick();assert.deepEqual(exported,{report_id:'b'.repeat(64),privacy:true},'Pending timeout, scenario and population cannot replace the displayed snapshot')}
+  context.data.engineering={...context.data.engineering,report_id:'c'.repeat(64)};
   await get('engineeringJSON').onclick();
-  assert.equal(exported.filters.idle_timeout,'5');assert.equal(exported.filters.input_population,'supported');assert.equal(exported.filters.effort_scenario,'central');
+  assert.equal(exported.report_id,'b'.repeat(64),'An incoming report is not applied until rendering succeeds');
   timer.options={effort_scenario:'high',idle_timeout:10,input_population:'inclusive'};
   context.data.engineering.full_days[8].scenarios.high={average:4};
   context.data.engineering.weekly[0].scenarios.high={total_estimated_hours:64,average_daily_equivalent:null};
@@ -116,6 +124,10 @@ vm.runInContext('bindEngineering()',context);
   assert.equal(get('engineeringFixedValue').textContent,'3.5×');assert.equal(get('engineeringTimerValue').textContent,'2.55×');
   assert.match(get('engineeringTimerMethod').textContent,/high effort.*10-minute timeout.*All ambiguous-inclusive inputs/);
   assert.match(get('engineeringFixedMethod').textContent,/high effort.*fixed-day-v1/);
+  context.preferences.privacy=false;vm.runInContext('renderEngineering()',context);
+  await get('engineeringCSV').onclick();
+  assert.deepEqual(exported,{report_id:'c'.repeat(64),privacy:false},'A successful render applies the new snapshot; privacy changes only the export flag');
+  context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);
   context.localStorage.getItem=()=>JSON.stringify(saved);vm.runInContext('bindEngineering()',context);
   assert.equal(get('engineeringScenario').value,'high');assert.equal(get('engineeringTimeout').value,'10');assert.equal(get('engineeringPopulation').value,'inclusive');
 
@@ -156,7 +168,13 @@ vm.runInContext('bindEngineering()',context);
   let server={schema_version:1,version:7,updated_at:'2026-01-06T00:00:00Z',entries:[{id:'B',reference:ref,rationale:'PRIVATE reason'},{id:'Z',reference:ref}]};
   const input=(id,date,classification='ambiguous',inScope=true)=>({id,local_date:date,local_timestamp:date+'T09:00:00+00:00',original_timestamp:date+'T09:00:00Z',timestamp:date+'T09:00:00+00:00',timestamp_basis:'original input event',provider:'Codex',session:'PRIVATE_CHAT_'+id,classification,reason:classification==='ambiguous'?'Human origin not established':'Recorded source classification',classifier_version:'human-inputs-v1',source_statuses:['current'],in_scope:inScope});
   const inputs=[input('A',dates[0]),input('B',dates[1]),input('S',dates[0],'supported_human'),input('X',dates[0],'excluded'),input('Z',dates[1],'ambiguous',false)];
-  const resolution=()=>{const ids=server.entries.map(entry=>entry.id),inside=ids.filter(id=>id!=='Z'),outside=ids.filter(id=>id==='Z');return {version:server.version,ids,valid_ids:ids,selected_count:ids.length,valid_count:ids.length,in_scope_ids:inside,in_scope_count:inside.length,outside_scope_ids:outside,missing_ids:[],changed_ids:[],invalid_ids:[],headline_scope_ids:{2:inside,5:inside,10:inside},outside_cohort_ids:{2:outside,5:outside,10:outside},label:'Supported + '+inside.length+' user-included ambiguous inputs',warnings:[],limitations:[]}};
+  let aliases={};const changedChoices=new Set();
+  const resolution=()=>{
+    const ids=server.entries.map(entry=>entry.id),resolved_ids={},missing_ids=[],changed_ids=[],invalid_ids=[];
+    for(const id of ids){const target=aliases[id]||id,event=inputs.find(event=>event.id===target);if(!event)missing_ids.push(id);else if(changedChoices.has(id))changed_ids.push(id);else if(event.classification!=='ambiguous'||event.provenance_conflict)invalid_ids.push(id);else resolved_ids[id]=target}
+    const valid=Object.keys(resolved_ids),inside=valid.filter(id=>inputs.find(event=>event.id===resolved_ids[id]).in_scope),outside=valid.filter(id=>!inside.includes(id));
+    return {version:server.version,ids,valid_ids:valid,resolved_ids,selected_count:ids.length,valid_count:valid.length,in_scope_ids:inside,in_scope_count:inside.length,outside_scope_ids:outside,missing_ids,changed_ids,invalid_ids,headline_scope_ids:{2:inside,5:inside,10:inside},outside_cohort_ids:{2:outside,5:outside,10:outside},label:'Supported + '+inside.length+' user-included ambiguous inputs',warnings:[],limitations:[]};
+  };
   timer.cohort.dates=dates;timer.matched_fixed=fixed;timer.cohort.no_supported_timer_dates=['2026-01-03'];
   for(const p of ['supported','selected','inclusive'])sensitivity[p]={2:timerStats(4),5:timerStats(10),10:timerStats(20)};
   joint.selected=joint.supported;timer.full_days={dates,sensitivity,matched_fixed:fixed};timer.weekly=[];timer.options={effort_scenario:'central',idle_timeout:5,input_population:'supported'};
@@ -170,6 +188,7 @@ vm.runInContext('bindEngineering()',context);
   const descendants=node=>[node,...node.children.flatMap(descendants)];
   const shownCheckbox=()=>descendants(table().body).find(node=>node.type==='checkbox');
   assert.equal(descendants(table().body).filter(node=>node.type==='checkbox').length,1,'Supported and known excluded events cannot be selected');
+  assert.notEqual(shownCheckbox().indeterminate,true,'An unselected input is not an unresolved saved choice');
   assert.doesNotMatch(flatten(table().body),/PRIVATE_CHAT|PRIVATE reason/);
   assert.match(flatten(table().body),/Original 2026-01-01T09:00:00Z.*UTC.*Codex.*Chat/);
   assert.doesNotMatch(share(table().body),/original input event|Human origin not established|PRIVATE/);
@@ -177,7 +196,7 @@ vm.runInContext('bindEngineering()',context);
   assert.match(share(get('engineeringInputSelectionIds')),/B, Z/);
 
   const requests=[];let failPost=false,waitForGet=null,releaseGet;
-  context.fetch=async(url,options)=>{
+  const selectionFetch=async(url,options)=>{
     assert.equal(url,'/api/engineering/input-selection');requests.push({url,options});
     if(!options){if(waitForGet)await waitForGet;return {ok:true,json:async()=>({selection:clone(server),resolution:resolution()})}}
     const body=JSON.parse(options.body);
@@ -186,7 +205,9 @@ vm.runInContext('bindEngineering()',context);
     server={schema_version:1,version:server.version+1,updated_at:'2026-01-06T01:00:00Z',entries:body.entries.map(entry=>({...entry,reference:entry.reference||ref}))};
     return {ok:true,json:async()=>({selection:clone(server),resolution:resolution()})};
   };
-  context.load=async()=>{loads++;context.data.engineering.human_inputs.selection=clone(server);timer.selection=resolution();timer.options.input_population=get('engineeringPopulation').value;vm.runInContext('renderEngineering()',context);return true};
+  context.fetch=selectionFetch;
+  const refreshSelection=async()=>{loads++;context.data.engineering.report_id=String(server.version).padStart(64,'0');context.data.engineering.human_inputs.selection=clone(server);timer.selection=resolution();timer.options.input_population=get('engineeringPopulation').value;vm.runInContext('renderEngineering()',context);return true};
+  context.load=refreshSelection;
   waitForGet=new Promise(resolve=>{releaseGet=resolve});
   const checkbox=shownCheckbox();checkbox.checked=true;const saving=checkbox.onchange();
   assert.equal(checkbox.disabled,true);assert.equal(get('engineeringJSON').disabled,true);
@@ -197,8 +218,8 @@ vm.runInContext('bindEngineering()',context);
   assert.deepEqual(server.entries[0],{id:'B',reference:ref,rationale:'PRIVATE reason'},'Hidden choices and original references survive a visible checkbox update');
   assert.equal(get('engineeringPopulation').value,'selected');assert.equal(checkbox.disabled,false);
   assert.match(get('engineeringTimerMethod').textContent,/Supported \+ 2 user-included ambiguous inputs/);
-  assert.equal(vm.runInContext('engineeringSelection(true).input_selection_version',context),'8');
-  assert.equal(vm.runInContext('engineeringSelection().input_selection_version',context),'','Live reloads request the latest selection rather than pinning the previous version');
+  assert.equal(timer.selection.version,8);
+  assert.equal(vm.runInContext('engineeringSelection().input_selection_version',context),undefined,'Live reloads request the latest selection rather than pinning the previous version');
   assert.equal(get('engineeringSensitivity').children.length,12,'All three populations retain 2/5/10-minute sensitivities');
   assert.equal(get('engineeringFixedValue').textContent,'1.75×');assert.deepEqual(timer.cohort.dates,dates);
   table().clear.onclick();
@@ -219,7 +240,7 @@ vm.runInContext('bindEngineering()',context);
   await vm.runInContext("engineeringToggleInput('A',false)",context);
   assert.deepEqual(server,before);assert.equal(loads,beforeLoads);
   assert.match(get('engineeringInputLocalStatus').textContent,/not saved.*Reload and retry/);
-  assert.equal(vm.runInContext('engineeringSelection(true).input_selection_version',context),'10');
+  assert.equal(timer.selection.version,10);
   assert.equal(get('engineeringJSON').disabled,false);
   failPost=false;await vm.runInContext("engineeringToggleInput('A',false)",context);
   assert.deepEqual(server.entries.map(entry=>entry.id),['B','Z']);assert.equal(server.version,11);
@@ -229,6 +250,99 @@ vm.runInContext('bindEngineering()',context);
   await vm.runInContext("engineeringToggleInput('B',false)",context);
   assert.deepEqual(server.entries.map(entry=>entry.id),['Z']);assert.equal(server.version,12);
   assert.match(get('engineeringInputLocalStatus').textContent,/version 12 was saved.*displayed report has not refreshed/);
-  assert.equal(vm.runInContext('engineeringSelection(true).input_selection_version',context),'11','A saved decision followed by a failed refresh must not silently change the exported calculation');
+  assert.equal(timer.selection.version,11,'A saved decision followed by a failed refresh must not silently change the displayed calculation');
+  context.fetch=async(url,options)=>{assert.equal(url,'/api/engineering/export');exported=JSON.parse(options.body);return {ok:true,json:async()=>({id:'fixture',report:{cutoff:'applied'},csv:'applied-csv'})}};
+  context.engineeringDownload=(text,name,type)=>downloads.push({text,name,type});
+  for(const format of ['JSON','CSV']){await get('engineering'+format).onclick();assert.deepEqual(exported,{report_id:String(11).padStart(64,'0'),privacy:true},'Saving a choice before a failed refresh must export the earlier displayed calculation')}
+  const snapshotFetch=context.fetch;let requestsAfterFailure=0;
+  context.fetch=async(...args)=>{requestsAfterFailure++;return snapshotFetch(...args)};
+  const renderComparison=context.renderEngineeringComparison;
+  context.data.engineering.report_id='d'.repeat(64);
+  context.renderEngineeringComparison=()=>{throw Error('Render interrupted')};
+  assert.throws(()=>vm.runInContext('renderEngineering()',context),/Render interrupted/);
+  context.renderEngineeringComparison=renderComparison;
+  for(const format of ['JSON','CSV'])await get('engineering'+format).onclick();
+  assert.equal(requestsAfterFailure,0,'A partial render cannot export a mismatched snapshot');
+  assert.match(get('engineeringStatus').textContent,/Refresh before exporting/);
+  assert.match(get('status').textContent,/Export failed.*Refresh the report/);
+  const complete=context.data.engineering;
+  for(const missing of [undefined,{...complete,report_id:undefined},{...complete,report_id:''}]){
+    context.data.engineering=complete;vm.runInContext('renderEngineering()',context);
+    context.data.engineering=missing;vm.runInContext('renderEngineering()',context);
+    for(const format of ['JSON','CSV'])await get('engineering'+format).onclick();
+    assert.equal(requestsAfterFailure,0,'Missing snapshots must never fall back to recalculating filters');
+  }
+  context.data.engineering=complete;vm.runInContext('renderEngineering()',context);
+  const beforeErrorDownloads=downloads.length;let expiredRequests=0;
+  context.fetch=async()=>{expiredRequests++;return {ok:false,json:async()=>({error:'Displayed snapshot expired; refresh /PRIVATE/local/path'})}};
+  for(const format of ['JSON','CSV'])await get('engineering'+format).onclick();
+  assert.equal(expiredRequests,2,'Expired snapshots are not retried with recomputed controls');
+  assert.equal(downloads.length,beforeErrorDownloads);
+  assert.match(get('engineeringStatus').textContent,/snapshot expired.*PRIVATE/);
+  assert.doesNotMatch(get('status').textContent,/PRIVATE|local\/path/);
+  assert.match(get('status').textContent,/Export failed.*Refresh the report/);
+  // Alias enrichment retains choices under saved IDs; UI actions operate on the resolved logical input.
+  context.fetch=selectionFetch;context.load=refreshSelection;
+  aliases={'A-old':'A','A-second':'A','A-late':'A','Z-old':'Z'};
+  for(const order of [['A-old','A-second'],['A-second','A-old']]){
+    server={...server,version:20,entries:[...order.map(id=>({id,reference:ref,rationale:'PRIVATE alias rationale '+id})),{id:'B',reference:ref},{id:'Z-old',reference:ref},{id:'U',reference:ref}]};
+    await refreshSelection();
+    const first=shownCheckbox();
+    assert.equal(first.checked,true,'A saved alias checks the stable input row');
+    assert.notEqual(first.indeterminate,true,'Valid aliases must not be presented as unresolved');
+    const exceptionText=flatten(get('engineeringInputExceptions'));
+    assert.match(exceptionText,/Saved choices outside this report/);
+    assert.equal(descendants(get('engineeringInputExceptions')).filter(node=>node.textContent==='Remove unavailable saved choice').length,1,'Only the truly missing U entry lacks metadata; valid aliases resolve to their event');
+    assert.doesNotMatch(share(get('engineeringInputExceptions')),/PRIVATE|original input event/);
+    context.preferences.privacy=false;vm.runInContext('renderEngineering()',context);
+    assert.match(flatten(table().body),/PRIVATE alias rationale A-old/);assert.match(flatten(table().body),/PRIVATE alias rationale A-second/);
+    assert.doesNotMatch(share(table().body),/PRIVATE/);
+    context.preferences.privacy=true;vm.runInContext('renderEngineering()',context);
+    const originalEntries=clone(server.entries);
+    await vm.runInContext("engineeringToggleInput('A',true)",context);
+    assert.deepEqual(server.entries,originalEntries,'Including an already-resolved input preserves all saved IDs and original references');
+    server.entries.push({id:'A-late',reference:ref});
+    const checkbox=shownCheckbox();checkbox.checked=false;await checkbox.onchange();
+    assert.deepEqual(server.entries.map(entry=>entry.id),['B','Z-old','U'],'Unchecking one logical input removes every resolving alias and preserves hidden/unresolved choices');
+    assert.equal(inputs.find(event=>event.id==='A').classification,'ambiguous');
+  }
+  changedChoices.add('A');
+  for(const order of [['A','A-old'],['A-old','A']]){
+    server={...server,entries:order.map(id=>({id,reference:ref}))};await refreshSelection();
+    assert.equal(shownCheckbox().checked,true);assert.notEqual(shownCheckbox().indeterminate,true,'One valid alias is sufficient even when another saved reference changed');
+  }
+  server={...server,entries:[{id:'A',reference:ref}]};await refreshSelection();
+  assert.equal(shownCheckbox().indeterminate,true,'A lone changed reference is visibly unresolved');
+  changedChoices.clear();
+  server={...server,entries:[{id:'A-old',reference:ref},{id:'A-second',reference:ref},{id:'U',reference:ref}]};await refreshSelection();
+  const beforeChange=shownCheckbox();changedChoices.add('A-old');changedChoices.add('A-second');
+  beforeChange.checked=false;await beforeChange.onchange();
+  assert.deepEqual(server.entries.map(entry=>entry.id),['U'],'Choices that become unresolved after display can still be deselected');changedChoices.clear();
+  inputs.find(event=>event.id==='A').aliases=['A','A-old'];changedChoices.add('A-old');
+  server={...server,entries:[{id:'A-old',reference:ref}]};await refreshSelection();
+  assert.equal(shownCheckbox().checked,true,'A changed saved alias remains associated with its known event');
+  assert.equal(shownCheckbox().indeterminate,true);const changedAlias=shownCheckbox();changedAlias.checked=false;await changedAlias.onchange();
+  assert.deepEqual(server.entries,[]);changedChoices.clear();
+  // A family can merge while the view is open; translate the displayed saved IDs through fresh resolution.
+  server={...server,version:30,entries:[{id:'A-old',reference:ref},{id:'A-second',reference:ref},{id:'U',reference:ref}]};
+  await refreshSelection();const beforeMerge=shownCheckbox();assert.equal(beforeMerge.checked,true);
+  inputs.push({...inputs.find(event=>event.id==='A'),id:'M'});aliases['A-old']='M';aliases['A-second']='M';
+  const removedA=inputs.splice(inputs.findIndex(event=>event.id==='A'),1)[0];
+  beforeMerge.checked=false;await beforeMerge.onchange();
+  assert.deepEqual(server.entries.map(entry=>entry.id),['U'],'Fresh alias resolution preserves the intent of unchecking the displayed input after a merge');
+  inputs.push(removedA);aliases['A-old']='A';aliases['A-second']='A';
+  const conflict={...input('F',dates[0]),aliases:['F','F-old','F-copy'],provenance_conflict:true,reason:'Conflicting authoritative original timestamps'};inputs.push(conflict);aliases['F-old']='F';aliases['F-copy']='F';
+  for(const inScope of [true,false]){
+    conflict.in_scope=inScope;server={...server,version:40,entries:[{id:'F-old',reference:ref},{id:'F-copy',reference:ref},{id:'U',reference:ref}]};await refreshSelection();
+    const container=inScope?table().body:get('engineeringInputExceptions');
+    const conflictRow=descendants(container).find(node=>node.className==='engineering-input-event'&&flatten(node).includes('Conflicting authoritative original timestamps'));
+    assert.ok(conflictRow,'Conflicted aliases retain their inspectable event inside and outside the applied scope');assert.equal(descendants(conflictRow).some(node=>node.type==='checkbox'),false,'Conflicted originals cannot be newly included');
+    assert.equal(descendants(get('engineeringInputExceptions')).filter(node=>node.textContent==='Remove unavailable saved choice').length,1,'Only U has unavailable metadata; invalid aliases still identify the conflicting event');
+    const removeConflict=descendants(conflictRow).find(node=>node.textContent==='Remove invalid saved choice');assert.ok(removeConflict);await removeConflict.onclick();
+    assert.deepEqual(server.entries.map(entry=>entry.id),['U']);
+    const unselectedConflict=descendants(inScope?table().body:get('engineeringInputExceptions')).find(node=>node.className==='engineering-input-event'&&flatten(node).includes('Conflicting authoritative original timestamps'));
+    assert.equal(unselectedConflict?descendants(unselectedConflict).some(node=>node.type==='checkbox'):false,false);
+  }
+  console.log('Immutable export and alias UI checks passed: rendered snapshot IDs, both formats, failed refresh/render isolation, missing/expired snapshots, alias-family selection/deselection, hidden choices and conflict removal.');
   console.log('Individual input dashboard checks passed: separate classifications, private aliases, hidden choice/reference preservation, serialized versioned saves, applied export pinning, reset and local JSON roundtrip.');
 })().catch(error=>{console.error(error);process.exitCode=1});

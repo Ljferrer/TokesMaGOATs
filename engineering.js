@@ -14,15 +14,12 @@ function engineeringMetricLine(value) {
 function engineeringActivityLine(a) {
   return a?`Agent evidence: ${a.roots} roots / ${a.children} children · ${a.inclusive_identities} inclusive / ${a.positive_accounting_identities} with positive accounting / ${a.zero_or_synthetic_only} zero or synthetic only · observed task-span peak ${a.task_span_peak??'N/A'} (positive view ${a.positive_task_span_peak??'N/A'}) · peak responding density 60/300/600 s: ${Object.values(a.responding_density).map(n=>n??'N/A').join(' / ')} · ${a.missing_terminal_markers} missing terminals. These are not API-call concurrency.`:'Agent evidence: N/A';
 }
-function engineeringSelection(applied=false) {
-  const filter=applied?data?.engineering?.day_filter:null;
-  const timer=applied?data?.engineering?.message_timer?.options:null;
-  return {comparison_hours:String(filter?.comparison_hours||$('engineeringHours').value||8),
-    effort_threshold:filter?(filter.threshold===null?'':String(filter.threshold)):($('engineeringIgnoreDays').checked?$('engineeringThreshold').value:''),
-    effort_scenario:timer?.effort_scenario||$('engineeringScenario').value||'central',
-    idle_timeout:String(timer?.idle_timeout||$('engineeringTimeout').value||5),
-    input_population:timer?.input_population||$('engineeringPopulation').value||'supported',
-    input_selection_version:applied&&data?.engineering?.message_timer?.selection?String(data.engineering.message_timer.selection.version):''};
+function engineeringSelection() {
+  return {comparison_hours:String($('engineeringHours').value||8),
+    effort_threshold:$('engineeringIgnoreDays').checked?$('engineeringThreshold').value:'',
+    effort_scenario:$('engineeringScenario').value||'central',
+    idle_timeout:String($('engineeringTimeout').value||5),
+    input_population:$('engineeringPopulation').value||'supported'};
 }
 function renderEngineeringThresholdControl() {
   const label=Number($('engineeringThreshold').value).toFixed(2)+'×';
@@ -88,7 +85,7 @@ function renderEngineeringComparison(e,hours) {
   for(const date of r.input_only_dates){const day=t.days.find(d=>d.date===date);if(day)$('engineeringInputOnlyDates').append(engineeringText('p',engineeringTimerDay(day,t),'muted'))}
   $('engineeringTimerLimitations').replaceChildren(...t.limitations.map(value=>engineeringText('p',value,'muted')));
   const selection=t.selection;
-  $('engineeringInputSelectionSummary').textContent=selection?`Applied input selection version ${selection.version}: ${selection.label}. ${selection.selected_count} saved choices globally, ${selection.valid_count} valid; ${selection.in_scope_count} in this report and ${selection.outside_scope_ids.length} outside its date/project scope. At ${idle_timeout} minutes, ${selection.headline_scope_ids[timeout].length} chosen inputs have windows on matched C and ${selection.outside_cohort_ids[timeout].length} have windows outside C; overlapping windows do not add time twice. Missing IDs: ${selection.missing_ids.length}; changed: ${selection.changed_ids.length}; invalid: ${selection.invalid_ids.length}. ${(selection.warnings||[]).join(' ')} ${(selection.limitations||[]).join(' ')}`:'No persisted individual input choices are available in this report.';
+  $('engineeringInputSelectionSummary').textContent=selection?`Applied input selection version ${selection.version}: ${selection.label}. ${selection.selected_count} saved choices globally, ${selection.valid_count} valid; ${selection.in_scope_count} in this report and ${selection.outside_scope_ids.length} outside its date/project scope. At ${idle_timeout} minutes, ${selection.headline_scope_ids[timeout].length} saved choices have windows on matched C and ${selection.outside_cohort_ids[timeout].length} have windows outside C; overlapping windows do not add time twice. Missing IDs: ${selection.missing_ids.length}; changed: ${selection.changed_ids.length}; invalid: ${selection.invalid_ids.length}. ${(selection.warnings||[]).join(' ')} ${(selection.limitations||[]).join(' ')}`:'No persisted individual input choices are available in this report.';
   $('engineeringInputSelectionIds').textContent=selection?`Saved ambiguous input IDs in this report’s selection metadata (version ${selection.version}): ${selection.ids.join(', ')||'none'}. JSON/CSV preserve each ID’s validity and scope; source classification remains ambiguous for valid choices.`:'';
 }
 let engineeringInputSaving=false,engineeringInputAliases=new Map();
@@ -108,7 +105,7 @@ async function engineeringSaveInputSelection(change) {
   let savedVersion=null;
   try{
     const current=await engineeringReadInputSelection();
-    const entries=change(current.selection.entries);
+    const entries=change(current.selection.entries,current.resolution);
     const result=await engineeringRequest('/api/engineering/input-selection',{schema_version:1,base_version:current.selection.version,entries});
     savedVersion=result.selection.version;
     $('engineeringPopulation').value=entries.length?'selected':'supported';
@@ -117,33 +114,42 @@ async function engineeringSaveInputSelection(change) {
     $('engineeringInputLocalStatus').textContent=`Saved input selection version ${savedVersion}. Source classifications remain unchanged.`;
   }catch(error){
     $('engineeringInputLocalStatus').textContent=(savedVersion===null?'Input selection was not saved. Reload and retry.':'Selection version '+savedVersion+' was saved, but the displayed report has not refreshed. Reload to apply it.')+(preferences.privacy?'':' '+error.message);
-    $('status').textContent=savedVersion===null?'Input selection change failed. Reload and retry.':'Input choices saved; reload to refresh the report. Exports remain pinned to the displayed selection version.';
+    $('status').textContent=savedVersion===null?'Input selection change failed. Reload and retry.':'Input choices saved; reload to refresh the report. Exports remain pinned to the displayed calculation.';
     if(data?.engineering){renderEngineeringInputExceptions(data.engineering);if(typeof renderEngineeringTimerTable==='function')renderEngineeringTimerTable(data.engineering,date=>engineeringInputDay(date,data.engineering))}
   }finally{engineeringInputBusy(false)}
 }
+function engineeringInputChoiceId(entry,resolution) {
+  return resolution?.resolved_ids?.[entry.id]||entry.id;
+}
+function engineeringInputChoiceMatches(entry,event,resolution) {
+  return engineeringInputChoiceId(entry,resolution)===event.id||(event.aliases||[]).includes(entry.id);
+}
 function engineeringToggleInput(id,included) {
-  return engineeringSaveInputSelection(entries=>{
-    const previous=entries.find(entry=>entry.id===id),next=entries.filter(entry=>entry.id!==id);
-    if(included)next.push({id,...(previous?.rationale?{rationale:previous.rationale}:{})});
-    return next;
+  const e=data?.engineering,event=e?.human_inputs?.events.find(event=>event.id===id)||{id};
+  const displayed=(e?.human_inputs?.selection?.entries||[]).filter(entry=>engineeringInputChoiceMatches(entry,event,e.message_timer?.selection)).map(entry=>entry.id);
+  return engineeringSaveInputSelection((entries,resolution)=>{
+    const targets=new Set([id,...displayed,...[id,...displayed].map(saved=>resolution?.resolved_ids?.[saved])]);
+    const matches=entry=>targets.has(engineeringInputChoiceId(entry,resolution));
+    if(included)return entries.some(matches)?entries:[...entries,{id}];
+    return entries.filter(entry=>!matches(entry));
   });
 }
 function engineeringInputEvent(event,e) {
   const row=document.createElement('div');row.className='engineering-input-event';row.dataset.snapshotIgnore='';
-  const choices=e.human_inputs?.selection?.entries||[],entry=choices.find(value=>value.id===event.id),selected=Boolean(entry);
+  const resolution=e.message_timer?.selection,choices=(e.human_inputs?.selection?.entries||[]).filter(entry=>engineeringInputChoiceMatches(entry,event,resolution)),selected=choices.length>0;
   const chat=preferences.privacy?engineeringInputAliases.get(event.provider+':'+event.session)||'Private chat':event.session;
   const time=event.original_timestamp?'Original '+event.original_timestamp:'Original timestamp unavailable; retained '+event.timestamp;
   row.append(engineeringText('p',`${time} · ${event.local_timestamp||event.timestamp} (${e.timezone}) · ${event.provider} · ${chat}`),engineeringText('p',`${event.classification} · ${event.reason} · timestamp basis: ${event.timestamp_basis} · classifier ${event.classifier_version||e.message_timer?.classifier_version}. Source status: ${(event.source_statuses||[]).join(', ')||'unavailable'}.`,'muted'));
-  if(event.classification==='ambiguous'){
+  if(event.classification==='ambiguous'&&!event.provenance_conflict){
     const label=document.createElement('label'),checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selected;
     checkbox.dataset.inputSelectionControl='';checkbox.disabled=engineeringInputSaving;
     checkbox.setAttribute('aria-label',`Include ${event.provider} ${chat} input at ${event.original_timestamp||event.timestamp} in timer`);
     checkbox.onchange=()=>engineeringToggleInput(event.id,checkbox.checked);
     label.append(checkbox,engineeringText('span',' Include in timer'));row.append(label);
-    if(selected&&!e.message_timer?.selection?.valid_ids.includes(event.id)){checkbox.indeterminate=true;row.append(engineeringText('p','This saved choice is unresolved or changed and is not included. Review the evidence, then deselect and reselect to confirm it.','muted'))}
+    if(selected&&!choices.some(entry=>resolution?.valid_ids.includes(entry.id))){checkbox.indeterminate=true;row.append(engineeringText('p','This saved choice is unresolved or changed and is not included. Review the evidence, then deselect and reselect to confirm it.','muted'))}
   }else if(selected){const button=engineeringText('button','Remove invalid saved choice');button.dataset.inputSelectionControl='';button.disabled=engineeringInputSaving;button.onclick=()=>engineeringToggleInput(event.id,false);row.append(button)}
   if(selected&&!event.in_scope)row.append(engineeringText('p','Saved choice outside the applied report scope; it does not expand the matched comparison.','muted'));
-  if(selected&&entry.rationale&&!preferences.privacy)row.append(engineeringText('p','Selection rationale: '+entry.rationale,'muted'));
+  if(!preferences.privacy)for(const entry of choices)if(entry.rationale)row.append(engineeringText('p','Selection rationale: '+entry.rationale,'muted'));
   return row;
 }
 function engineeringInputDay(date,e) {
@@ -160,17 +166,19 @@ function renderEngineeringInputExceptions(e) {
   engineeringInputAliases=new Map([...new Set(events.map(event=>event.provider+':'+event.session))].sort().map((key,i)=>[key,'Chat '+(i+1)]));
   const dates=new Set((e.message_timer?.days||[]).map(day=>day.date));
   const carry=events.filter(event=>event.in_scope&&!dates.has(event.local_date));
-  const outside=events.filter(event=>!event.in_scope&&entries.some(entry=>entry.id===event.id));
+  const outside=events.filter(event=>!event.in_scope&&entries.some(entry=>engineeringInputChoiceMatches(entry,event,e.message_timer?.selection)));
   for(const [title,rows] of [['Carry-in inputs before the displayed dates',carry],['Saved choices outside this report',outside]])if(rows.length){host.append(engineeringText('h4',title));for(const event of rows)host.append(engineeringInputEvent(event,e))}
-  for(const [i,entry] of entries.entries())if(!events.some(event=>event.id===entry.id)){
+  for(const [i,entry] of entries.entries())if(!events.some(event=>engineeringInputChoiceMatches(entry,event,e.message_timer?.selection))){
     const row=document.createElement('div');row.dataset.snapshotIgnore='';row.append(engineeringText('p',`${preferences.privacy?'Saved choice '+(i+1):entry.id} · unavailable input metadata; this choice remains recorded and is not silently promoted to human input.`));
     const button=engineeringText('button','Remove unavailable saved choice');button.dataset.inputSelectionControl='';button.disabled=engineeringInputSaving;button.onclick=()=>engineeringToggleInput(entry.id,false);row.append(button);host.append(row);
   }
 }
 function saveEngineeringPreferences() {
-  try{const {effort_threshold,input_selection_version,...comparison}=engineeringSelection();localStorage.setItem('tokes-engineering-filter',JSON.stringify({enabled:$('engineeringIgnoreDays').checked,threshold:Number($('engineeringThreshold').value),...comparison}))}catch(_){}
+  try{const {effort_threshold,...comparison}=engineeringSelection();localStorage.setItem('tokes-engineering-filter',JSON.stringify({enabled:$('engineeringIgnoreDays').checked,threshold:Number($('engineeringThreshold').value),...comparison}))}catch(_){}
 }
+let engineeringAppliedReportId=null;
 function renderEngineering() {
+  engineeringAppliedReportId=null;
   $('engineeringEditor').hidden=preferences.privacy;
   const e=data?.engineering;if(!e)return;
   const hours=String(e.day_filter?.comparison_hours||(['4','8','12'].includes($('engineeringHours').value)?$('engineeringHours').value:8));
@@ -218,6 +226,7 @@ function renderEngineering() {
   }else for(const day of e.days)host.append(engineeringDay(day,e,hours));
   if(!e.days.length)host.append(engineeringText('p','No retained positive-token or delivery evidence in this selection.'));
   $('engineeringAssumptions').replaceChildren(...[e.baseline,...e.assumptions,...e.usage.limitations,...e.activity.limitations].map(t=>engineeringText('p',t,'muted')));
+  engineeringAppliedReportId=e.report_id||null;
 }
 function engineeringDay(day,e,hours) {
   const details=document.createElement('details');
@@ -257,7 +266,7 @@ function engineeringDownload(text,name,type) {
   $('engineeringStatus').replaceChildren(link);link.click();
 }
 function bindEngineering() {
-  const action=fn=>async()=>{try{await fn()}catch(error){$('engineeringStatus').textContent=error.message;$('status').textContent='Engineering action failed. Private details are in the local evidence editor.'}};
+  const action=(fn,failure='Engineering action failed. Private details are in the local evidence editor.')=>async()=>{try{await fn()}catch(error){$('engineeringStatus').textContent=error.message;$('status').textContent=failure}};
   const choices=[['engineeringHours','comparison_hours',['8','4','12']],['engineeringScenario','effort_scenario',['central','low','high']],['engineeringTimeout','idle_timeout',['5','2','10']],['engineeringPopulation','input_population',['supported','selected','inclusive']]];
   for(const [id,,values] of choices)$(id).value=values[0];
   $('engineeringThreshold').value='0.10';
@@ -287,7 +296,8 @@ function bindEngineering() {
   $('engineeringImport').onclick=action(async()=>{const r=await engineeringRequest('/api/engineering/import',JSON.parse($('engineeringAssessment').value));$('engineeringStatus').textContent='Saved immutable version '+r.version;await load()});
   $('engineeringLocalExport').onclick=action(async()=>{const doc=JSON.parse($('engineeringAssessment').value);engineeringDownload(JSON.stringify(doc,null,2),'private-engineering-assessment.json','application/json')});
   for(const format of ['JSON','CSV'])$('engineering'+format).onclick=action(async()=>{
-    const result=await engineeringRequest('/api/engineering/export',{filters:{...activeFilters,...engineeringSelection(true)},privacy:preferences.privacy});
+    if(!engineeringAppliedReportId)throw Error('No displayed report snapshot is available. Refresh before exporting.');
+    const result=await engineeringRequest('/api/engineering/export',{report_id:engineeringAppliedReportId,privacy:preferences.privacy});
     engineeringDownload(format==='JSON'?JSON.stringify(result.report,null,2):result.csv,'engineering-'+result.id.slice(0,12)+'.'+format.toLowerCase(),format==='JSON'?'application/json':'text/csv');
-  });
+  },'Export failed. Refresh the report and retry. Private details are in the local evidence editor.');
 }

@@ -62,6 +62,38 @@ class EngineeringTests(unittest.TestCase):
         self.assertEqual(result['sensitivity']['4']['scenarios']['central']['average'],8/3)
         self.assertAlmostEqual(result['sensitivity']['12']['scenarios']['central']['average'],8/9)
         self.assertEqual(result['weekly'][0]['scenarios']['central']['engineer_days'],4)
+
+    def test_invalid_saved_alias_remains_visible_outside_report_scope(self):
+        import input_selections
+        from test_human_inputs import codex_meta, codex_start, codex_input
+        eng.import_assessment(self.db,self.doc,'UTC')
+        def source(name, message_id, time, canonical=None, human=False):
+            rows=[codex_meta(),codex_start(),codex_input(message_id,original_time=time,canonical_id=canonical,human=human)]
+            path=self.root/(name+'.jsonl');path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+            human_inputs.save(self.db,path,'Codex',rows)
+        source('supported','supported','2026-01-01T08:00:00Z',human=True)
+        source('first','first','2026-01-02T09:00:00Z')
+        source('second','second','2026-01-02T09:00:00Z')
+        known=human_inputs.inventory(self.db)
+        saved=input_selections.save(self.db,dict(base_version=0,entries=[dict(id='Codex:second')]),known['events'],known['classifier_version'])
+        source('bridge','second','2026-01-02T09:00:00Z',canonical='first')
+        filters=dict(start='2026-01-01',end='2026-01-01',input_population='selected')
+        before=eng.view(self.db,self.config,filters,cutoff='2026-01-04T00:00:00Z')
+        details={e['id']:e for e in before['human_inputs']['events']};self.assertIn('Codex:first',details)
+        chosen=details['Codex:first']
+        self.assertTrue(chosen['selected']);self.assertFalse(chosen['in_scope'])
+        source('conflict','second','2026-01-02T10:00:00Z',canonical='first')
+        after=eng.view(self.db,self.config,filters,cutoff='2026-01-04T00:00:00Z')
+        details={e['id']:e for e in after['human_inputs']['events']};self.assertIn('Codex:first',details)
+        chosen=details['Codex:first']
+        self.assertTrue(chosen['selected']);self.assertFalse(chosen['in_scope']);self.assertTrue(chosen['provenance_conflict'])
+        self.assertEqual(after['human_inputs']['selection'],saved)
+        selection=after['message_timer']['selection']
+        self.assertEqual(selection['ids'],['Codex:second']);self.assertEqual(selection['invalid_ids'],['Codex:second'])
+        self.assertEqual(selection['resolved_ids'],{});self.assertTrue(selection['warnings'])
+        self.assertEqual(after['message_timer']['sensitivity']['selected'],after['message_timer']['sensitivity']['supported'])
+        public=eng.export_report(after)
+        self.assertNotIn('human_inputs',public);self.assertNotIn('"aliases":',json.dumps(public))
     def test_low_effort_days_leave_both_numerator_and_denominator(self):
         self.doc['work_items'][0]['effort'].update(hours_low=.36,hours_central=.72,hours_high=1.44)
         eng.import_assessment(self.db,self.doc,'UTC')
