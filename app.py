@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 from carbon import estimate as estimate_carbon
 from topics import contexts as topic_contexts, project_name
 from snipe_usage import results as snipe_results, DEFAULT_PATTERNS, DEFAULT_ROOTS
+import evidence
+import engineering
 
 BASE = Path(__file__).resolve().parent
 LOCK = threading.Lock()
@@ -33,6 +35,8 @@ def connect(path):
     CREATE TABLE IF NOT EXISTS event_roles (id TEXT PRIMARY KEY, role TEXT);
     CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, stamp TEXT);
     ''')
+    evidence.init(db)
+    engineering.init(db)
     return db
 
 
@@ -97,7 +101,7 @@ def is_war_auditor(value):
     return isinstance(value, str) and value.split(':')[-1] == 'war-auditor'
 
 
-def records(path, provider, account, auditors=None):
+def records(path, provider, account, auditors=None, provenance=None):
     auditors = auditors or set()
     if provider == 'Claude Code':
         try:
@@ -115,6 +119,7 @@ def records(path, provider, account, auditors=None):
             row = event(key, x['timestamp'], provider, account,
                         x.get('sessionId', path.stem), msg.get('model', 'unknown'),
                         x.get('isSidechain', False) or 'subagents' in path.parts, msg['usage'])
+            evidence.record_provenance(provenance, row, msg['usage'], provider, evidence.claude_identity(path, x)[0])
             yield row + ('auditor' if auditor or is_war_auditor(x.get('attributionAgent')) else 'subagent' if row[6] else 'main',)
         return
     # Keep only small accounting records; never retain transcript content.
@@ -144,6 +149,7 @@ def records(path, provider, account, auditors=None):
             row = event(p['response_id'], x['timestamp'], provider, account,
                         p.get('thread_id', session), model,
                         subagent and p.get('thread_id', session) == session, p.get('usage', {}))
+            evidence.record_provenance(provenance, row, p.get('usage', {}), provider)
             yield row + ('auditor' if row[4] in auditors else 'subagent' if row[6] else 'main',)
         elif p.get('type') == 'token_count' and p.get('info'):
             total = p['info'].get('total_token_usage') or {}
@@ -153,7 +159,9 @@ def records(path, provider, account, auditors=None):
             previous = total
             # Old fork logs can include copied history; timestamp+totals dedup copies.
             key = hashlib.sha256(json.dumps([x['timestamp'], total], sort_keys=True).encode()).hexdigest()
-            yield event(key, x['timestamp'], provider, account, session, model, subagent, delta) + ('auditor' if session in auditors else 'subagent' if subagent else 'main',)
+            row = event(key, x['timestamp'], provider, account, session, model, subagent, delta)
+            evidence.record_provenance(provenance, row, delta, provider, granularity='legacy_delta')
+            yield row + ('auditor' if session in auditors else 'subagent' if subagent else 'main',)
 
 
 def sync(db_path, config):
@@ -173,40 +181,71 @@ def sync(db_path, config):
                     st = path.stat()
                     meta = path.with_suffix('.meta.json')
                     meta_stamp = meta.stat().st_mtime_ns if meta.exists() else 0
-                    stamp = f'roles-v2:{st.st_mtime_ns}:{st.st_size}:{meta_stamp}'
+                    stamp = f'{evidence.PARSER_VERSION}:{st.st_mtime_ns}:{st.st_size}:{meta_stamp}'
                     old = db.execute('SELECT stamp FROM files WHERE path=?', (str(path),)).fetchone()
                     if old and old[0] == stamp:
                         continue
-                    for row in records(path, source['provider'], source.get('account', 'Local · account unknown'), auditors):
+                    provenance = {}
+                    db.execute('SAVEPOINT history_file')
+                    for row in records(path, source['provider'], source.get('account', 'Local · account unknown'), auditors, provenance):
                         # Streaming Claude messages repeat their ID; retain greatest reported usage.
                         db.execute('''INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(id) DO UPDATE SET input=MAX(input,excluded.input),
+                        ON CONFLICT(id) DO UPDATE SET timestamp=CASE WHEN julianday(excluded.timestamp)<julianday(timestamp) THEN excluded.timestamp ELSE timestamp END,input=MAX(input,excluded.input),
                         cached=MAX(cached,excluded.cached), cache_write=MAX(cache_write,excluded.cache_write),
                         output=MAX(output,excluded.output), reasoning=MAX(reasoning,excluded.reasoning),
                         subagent=MAX(subagent,excluded.subagent)''', row[:-1])
                         db.execute("INSERT INTO event_roles VALUES (?,?) ON CONFLICT(id) DO UPDATE SET role=CASE WHEN role='auditor' OR excluded.role='auditor' THEN 'auditor' WHEN role='subagent' OR excluded.role='subagent' THEN 'subagent' ELSE 'main' END", (row[0], row[-1]))
+                    activity = evidence.collect_activity(path, source['provider'], json_lines(path))
+                    source_stamp = f'{st.st_mtime_ns}:{st.st_size}'
+                    if any(p['granularity'] == 'response' for p in provenance.values()):
+                        legacy_ids = [key for (key,) in db.execute("SELECT event_id FROM response_sources WHERE source=? AND granularity='legacy_delta'", (str(path),))]
+                        for key in legacy_ids:
+                            db.execute('DELETE FROM events WHERE id=?', (key,))
+                            db.execute('DELETE FROM event_roles WHERE id=?', (key,))
+                            db.execute('DELETE FROM response_sources WHERE event_id=?', (key,))
+                    evidence.save_provenance(db, path, provenance, source_stamp)
+                    db.execute('INSERT OR REPLACE INTO activity_sources VALUES (?,?,?,?)', (str(path), source_stamp, evidence.now(), json.dumps(activity)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?)', (str(path), stamp))
+                    db.execute('RELEASE history_file')
                     changed += 1
                 except (OSError, ValueError, TypeError, KeyError):
+                    if db.in_transaction:
+                        try:
+                            db.execute('ROLLBACK TO history_file')
+                            db.execute('RELEASE history_file')
+                        except sqlite3.OperationalError:
+                            pass
                     errors += 1
             report.append(dict(provider=source['provider'], found=root.exists(), files=count, changed=changed, errors=errors))
         # Native histories supersede saved aggregates even after temp results vanish.
         for (session,) in db.execute("SELECT DISTINCT a.session FROM events a JOIN events b ON a.session=b.session AND b.provider='Codex' WHERE a.id LIKE 'Codex:snipe:%' AND b.id NOT LIKE 'Codex:snipe:%'").fetchall():
+            db.execute("DELETE FROM response_sources WHERE event_id IN (SELECT id FROM events WHERE session=? AND id LIKE 'Codex:snipe:%')",(session,))
             db.execute("DELETE FROM event_roles WHERE id IN (SELECT id FROM events WHERE session=? AND id LIKE 'Codex:snipe:%')",(session,))
             db.execute("DELETE FROM events WHERE session=? AND id LIKE 'Codex:snipe:%'",(session,))
             db.execute("INSERT OR REPLACE INTO event_roles SELECT id, 'auditor' FROM events WHERE provider='Codex' AND session=?",(session,))
-        recovered=set();audit_coverage={}
+        recovered=set();audit_coverage={}; aggregate_provenance={}
         for path,session,turn,timestamp,model,repository,usage in snipe_results(config.get('snipe_results', []), config.get('snipe_search_roots', []), audit_coverage, [source['path'] for source in config['sources'] if source['provider']=='Codex']):
             recovered.add(path)
             native=db.execute("SELECT 1 FROM events WHERE provider='Codex' AND session=? AND id NOT LIKE 'Codex:snipe:%' LIMIT 1",(session,)).fetchone()
             if native:
+                db.execute("DELETE FROM response_sources WHERE event_id IN (SELECT id FROM events WHERE session=? AND id LIKE 'Codex:snipe:%')",(session,))
                 db.execute("DELETE FROM event_roles WHERE id IN (SELECT id FROM events WHERE session=? AND id LIKE 'Codex:snipe:%')",(session,))
                 db.execute("DELETE FROM events WHERE session=? AND id LIKE 'Codex:snipe:%'",(session,))
             else:
                 row=event(f'snipe:{session}:{turn}',timestamp,'Codex','Local · account unknown',session,model,True,usage)
                 db.execute('''INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET input=MAX(input,excluded.input),cached=MAX(cached,excluded.cached),cache_write=MAX(cache_write,excluded.cache_write),output=MAX(output,excluded.output),reasoning=MAX(reasoning,excluded.reasoning)''',row)
+                evidence.record_provenance(aggregate_provenance.setdefault(str(path), {}), row, usage, 'Codex', granularity='completed_turn')
             db.execute("INSERT OR REPLACE INTO event_roles SELECT id, 'auditor' FROM events WHERE provider='Codex' AND session=?",(session,))
             db.execute('INSERT OR IGNORE INTO session_topics VALUES (?,?,?,?,?,?)',('Codex',session,project_name(repository),'Snipe review','Reviews & audits','Snipe coordinator result'))
+        for path, observations in aggregate_provenance.items():
+            # A coordinator result embedded in a history supplements its native records.
+            for key, counters, known, identity, first, last, granularity in db.execute('SELECT event_id,counters,known,identity,first_event,last_event,granularity FROM response_sources WHERE source=?', (path,)):
+                if key not in observations and granularity != 'completed_turn':
+                    observations[key] = dict(counters=json.loads(counters), known=json.loads(known), identity=identity, first_event=first, last_event=last, granularity=granularity)
+            try:
+                evidence.save_provenance(db, path, observations)
+            except (OSError, ValueError):
+                pass
         if config.get('snipe_results') or config.get('snipe_search_roots'):
             report.append(dict(provider='Codex Snipe results',found=bool(recovered),files=len(recovered),changed=len(recovered),errors=0,**audit_coverage))
         return report
@@ -300,6 +339,8 @@ def usage_view(db_path, config, filters, state):
     period=comparison_range(filters)
     previous=summary(db_path,config,dict(filters,start=period['start'],end=period['end']))
     result['comparison']=dict(period,total=previous['totals']['total'])
+    with connect(db_path) as db:
+        result['engineering'] = engineering.view(db, config, filters)
     after=state.snapshot()
     after['syncing']=import_status['syncing'] or after['syncing'] or import_status['generation']!=after['generation']
     return dict(result,**after)
@@ -348,6 +389,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--sync', action='store_true', help='Import histories and exit')
+    parser.add_argument('--collect-engineering', action='store_true', help='Observe configured local Git refs without fetching')
+    parser.add_argument('--import-assessment', type=Path, help='Import a versioned local engineering assessment JSON')
+    parser.add_argument('--export-assessment', type=Path, help='Write the editable next assessment version (contains private evidence)')
+    parser.add_argument('--reconcile', action='store_true', help='Reproduce current native raw counters without changing retained usage totals')
     args = parser.parse_args()
     data = BASE / 'data'
     data.mkdir(exist_ok=True)
@@ -356,6 +401,28 @@ def main():
     config.setdefault('snipe_results', DEFAULT_PATTERNS)
     config.setdefault('snipe_search_roots', DEFAULT_ROOTS)
     db_path = data / 'usage.sqlite3'
+    if args.reconcile:
+        with connect(db_path) as db:
+            for source in config['sources']:
+                for path in Path(source['path']).expanduser().rglob('*.jsonl'):
+                    observations = {}; source_stamp = evidence.stamp(path)
+                    for _ in records(path, source['provider'], source.get('account','Local · account unknown'), provenance=observations):
+                        pass
+                    evidence.save_provenance(db, path, observations, source_stamp)
+            report, _, _ = evidence.accounting(db, {}, config.get('timezone','America/Los_Angeles'))
+            print(json.dumps(report, indent=2))
+        return
+    if args.collect_engineering or args.import_assessment or args.export_assessment:
+        with connect(db_path) as db:
+            if args.collect_engineering:
+                snapshots = engineering.collect_repositories(db, config)
+                print(json.dumps([dict(id=s['id'], repository=s['repository'], tip=s['tip']) for s in snapshots], indent=2))
+            if args.import_assessment:
+                version = engineering.import_assessment(db, json.loads(args.import_assessment.read_text()), config.get('timezone', 'America/Los_Angeles'))
+                print('Imported assessment version', version)
+            if args.export_assessment:
+                args.export_assessment.write_text(json.dumps(engineering.template(db, config.get('timezone', 'America/Los_Angeles')), indent=2)+'\n')
+        return
     if args.sync:
         sources=sync(db_path,config)
         print(json.dumps(dict(**summary(db_path, config), sources=sources), indent=2))
@@ -386,7 +453,10 @@ def main():
                     self.send(400,json.dumps({'error':str(error)}).encode())
             elif self.path == '/api/state':
                 self.send(200,json.dumps(state.snapshot()).encode())
-            elif self.path in ('/share.js', '/vendor/html-to-image.js'):
+            elif self.path == '/api/engineering/assessment':
+                with connect(db_path) as db:
+                    self.send(200, json.dumps(dict(assessment=engineering.template(db, config.get('timezone','America/Los_Angeles')), snapshots=[dict(id=i, **json.loads(body)) for i,body in db.execute('SELECT id,body FROM repository_snapshots ORDER BY observed_at DESC')])).encode())
+            elif self.path in ('/share.js', '/engineering.js', '/vendor/html-to-image.js'):
                 self.send(200, (BASE / self.path.lstrip('/')).read_bytes(), 'application/javascript; charset=utf-8')
             elif self.path == '/':
                 self.send(200, (BASE / 'index.html').read_bytes(), 'text/html; charset=utf-8')
@@ -400,6 +470,32 @@ def main():
             elif self.path == '/api/sync':
                 state.start()
                 self.send(202, json.dumps(state.snapshot()).encode())
+            elif self.path in ('/api/engineering/import', '/api/engineering/collect', '/api/engineering/export'):
+                try:
+                    if self.path.endswith('/collect'):
+                        with LOCK, connect(db_path) as db:
+                            snapshots = engineering.collect_repositories(db, config)
+                        self.send(200, json.dumps({'snapshots':len(snapshots)}).encode())
+                    else:
+                        length = int(self.headers.get('Content-Length', '0'))
+                        if not 0 < length <= 2 * 1024 * 1024 or self.headers.get('Content-Type','').split(';')[0] != 'application/json':
+                            raise ValueError('Import requires application/json up to 2 MiB')
+                        document = json.loads(self.rfile.read(length))
+                        with LOCK, connect(db_path) as db:
+                            if self.path.endswith('/export'):
+                                filters = document.get('filters', {})
+                                today = dt.datetime.now(ZoneInfo(config.get('timezone','America/Los_Angeles'))).date().isoformat()
+                                filters.update(validated_range(filters, today))
+                                report = engineering.export_report(engineering.view(db, config, filters), bool(document.get('privacy', True)))
+                                body = engineering.encoded(report)
+                                identifier = hashlib.sha256(body.encode()).hexdigest()
+                                db.execute('INSERT OR IGNORE INTO engineering_reports VALUES (?,?,?)', (identifier,report['cutoff'],body))
+                                self.send(200, json.dumps({'id':identifier,'report':report,'csv':engineering.csv_report(report)}).encode())
+                            else:
+                                version = engineering.import_assessment(db, document, config.get('timezone','America/Los_Angeles'))
+                                self.send(200, json.dumps({'version':version}).encode())
+                except (ValueError, TypeError, KeyError, OverflowError) as error:
+                    self.send(400, json.dumps({'error':str(error)}).encode())
             else:
                 self.send(404, b'{}')
 
