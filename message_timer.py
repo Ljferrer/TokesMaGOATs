@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 
 from evidence import instant, merge_spans
 
-METHOD_VERSION = 'message-timer-v1'
+METHOD_VERSION = 'message-timer-v2'
+MAX_RATIO = 1000
 SCENARIOS = ('low', 'central', 'high')
 TIMEOUTS = (2, 5, 10)
 POPULATIONS = ('supported', 'selected', 'inclusive')
@@ -45,15 +46,25 @@ def union_hours(points, minutes, start, end, zone):
     return days
 
 
+def bounded_ratio(hours, elapsed):
+    if hours is None or elapsed <= 0:
+        return None, False
+    value = hours / elapsed
+    return min(value, MAX_RATIO), value > MAX_RATIO
+
+
 def period(dates, rows, times):
     denominator = sum(times.get(date, 0) for date in dates)
     defined = [date for date in dates if times.get(date, 0) > 0]
     scenarios = {}
     for scenario in SCENARIOS:
         numerator = sum(rows[date]['hours'][scenario] for date in dates)
-        ratios = [rows[date]['hours'][scenario] / times[date] for date in defined]
+        daily = {date: bounded_ratio(rows[date]['hours'][scenario], times[date]) for date in defined}
+        ratios = [value for value, clamped in daily.values()]
+        pooled, pooled_clamped = bounded_ratio(numerator, denominator)
         scenarios[scenario] = dict(numerator_hours=numerator,
-                                   pooled=numerator / denominator if dates and denominator > 0 else None,
+                                   pooled=pooled,
+                                   clamping=dict(pooled=pooled_clamped, daily_dates=[date for date, (value, clamped) in daily.items() if clamped]),
                                    daily_minimum=min(ratios) if ratios else None,
                                    daily_maximum=max(ratios) if ratios else None,
                                    daily_median=statistics.median(ratios) if ratios else None,
@@ -174,14 +185,16 @@ def build(days, human, timezone, filters, cutoff):
             reason = 'unknown_output'
         else:
             reason = 'no_supported_reference_timer'
+        ratios = {p: {str(t): {s: bounded_ratio(effort[s], hours[p][str(t)]) for s in SCENARIOS}
+                      for t in TIMEOUTS} for p in POPULATIONS}
         daily.append(dict(date=date, partial_day=row.get('partial_day', False) if row else date == stop.astimezone(zone).date().isoformat(),
                           in_cohort=date in cohort_set, effort_status=effort_status, effort_hours=effort,
                           known_item_hours={s: (row or {}).get('known_item_hours', {}).get(s) for s in SCENARIOS},
                           exclusion_reason=reason, hours=hours,
                           included_inputs={p: input_counts[p].get(date, 0) for p in POPULATIONS},
                           selected_ambiguous_ids=sorted(selected_dates.get(date, [])),
-                          ratios={p: {str(t): {s: effort[s] / hours[p][str(t)] if effort[s] is not None and hours[p][str(t)] > 0 else None
-                                             for s in SCENARIOS} for t in TIMEOUTS} for p in POPULATIONS}))
+                          ratios={p: {t: {s: pair[0] for s, pair in values.items()} for t, values in times.items()} for p, times in ratios.items()},
+                          ratio_clamped={p: {t: {s: pair[1] for s, pair in values.items()} for t, values in times.items()} for p, times in ratios.items()}))
     excluded = [date for date in token_dates if date not in cohort_set]
     scope = dict(dates=cohort, full_day_dates=full_days, token_active_dates=token_dates,
                  eligible_after_filter_dates=eligible, assessed_dates=assessed,
@@ -207,7 +220,8 @@ def build(days, human, timezone, filters, cutoff):
         'A zero retained timer is not evidence of zero actual work. No missing-time imputation or token-retention adjustment is applied.',
         'Inputs can include waiting and miss reading, typing, PR review, Slack, meetings and other off-chat work. Matched dates can still have incomplete logs.',
         'Ambiguous-inclusive inputs may contain automation. Joint low/high values are assumption sensitivities, not confidence intervals or true bounds.',
-        'Daily statistics are unweighted over defined ratios; the period headline divides total conventional effort by total modeled timer hours on the fixed cohort.']
+        'Daily statistics are unweighted over defined ratios; the period headline divides total conventional effort by total modeled timer hours on the fixed cohort.',
+        f'Timer ratios are capped at {MAX_RATIO}× and affected values are marked. Daily statistics use capped daily ratios; pooled ratios are capped separately.']
     recon = reconciliation(all_dates, cohort, rows, durations)
     recon['excluded_project_inputs'] = rejected_projects + len(human.get('unmatched_events', []))
     recon['invalid_timestamp_inputs'] = invalid_timestamps
@@ -229,10 +243,18 @@ def build(days, human, timezone, filters, cutoff):
                      limitations=['User inclusion does not change the ambiguous source classification or establish human origin.',
                                   'Within-headline-cohort windows may overlap existing time; counts are not additive durations.',
                                   'In-scope counts include timer tails entering the report at any supported timeout; daily input counts use original input dates.'])
+    overall = comparisons(cohort, rows, durations)
+    full = dict(dates=full_days, **comparisons(full_days, rows, durations))
+    clamped_dates = [day['date'] for day in daily if any(flag for times in day['ratio_clamped'].values()
+                                                       for values in times.values() for flag in values.values())]
+    pooled_clamped = any(scenario['clamping']['pooled'] for comparison in [overall, full, *weekly]
+                         for times in comparison['sensitivity'].values() for stats in times.values()
+                         for scenario in stats['scenarios'].values())
     return dict(method_version=METHOD_VERSION,
+                clamping=dict(ratio_limit=MAX_RATIO, applied=bool(clamped_dates) or pooled_clamped, dates=clamped_dates),
                 interval_method='Global union of half-open [human input, input + idle timeout) windows; clipped at local-day and report boundaries.',
                 options=selected, selection=selection, reference=dict(idle_timeout=5, input_population='supported'),
                 window=dict(start=start.isoformat(), end=end.isoformat()), cohort=scope, days=daily,
-                **comparisons(cohort, rows, durations),
-                full_days=dict(dates=full_days, **comparisons(full_days, rows, durations)), weekly=weekly,
+                **overall,
+                full_days=full, weekly=weekly,
                 reconciliation=recon, coverage=human.get('coverage', {}), classifier_version=human.get('classifier_version'), limitations=limits)

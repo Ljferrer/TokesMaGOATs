@@ -108,6 +108,62 @@ vm.runInContext('bindEngineering()',context);
   assert.match(share(get('engineeringDays')),/full fixed-day scope/);
   assert.match(share(get('engineeringDays')),/Matched weekly comparison.*2 dates.*fixed 1.75×.*timer pooled 2.8×.*unweighted daily mean 6×/);
 
+  // Clamp notices and markers must survive public snapshots without changing numeric evidence.
+  const beforeClampReport=context.data.engineering;
+  const clampedReport=JSON.parse(JSON.stringify(beforeClampReport)),ct=clampedReport.message_timer;
+  clampedReport.clamping={effort_hours_limit:10000,effort:[{date:dates[0],scenario:'central',original_hours:1e308,applied_hours:10000}]};
+  clampedReport.days[0].clamped_effort={low:0,central:1,high:0};
+  ct.clamping={ratio_limit:1000,applied:true,dates:[dates[0]]};
+  for(const scope of [ct,ct.full_days,...ct.weekly])for(const population of Object.values(scope.sensitivity))for(const period of Object.values(population))for(const value of Object.values(period.scenarios)){
+    value.pooled=1000;value.numerator_hours=1e6;value.clamping={pooled:true,daily_dates:[dates[0]]};
+    value.daily_maximum=1000;value.daily_mean=value.daily_median=501;
+  }
+  ct.joint.supported={low:1000,high:1000};
+  ct.days[0].ratios.supported[5].central=1000;
+  ct.days[0].ratio_clamped={supported:{5:{central:true}}};
+  context.data.engineering=clampedReport;vm.runInContext('renderEngineering()',context);
+  assert.equal(get('engineeringClamping').hidden,false);
+  assert.match(share(get('engineeringClamping')),/Clamping applied.*10,000.*hours per work item.*1,000×/);
+  assert.match(share(get('engineeringClamping')),/Original estimates.*assessment.*Daily statistics use clamped daily ratios/);
+  assert.equal(get('engineeringTimerValue').textContent,'1,000× (clamped)');
+  assert.match(get('engineeringTimerCalculation').textContent,/Clamped pooled ratio.*limit/);
+  assert.doesNotMatch(get('engineeringTimerCalculation').textContent,/headline is the ratio of sums/);
+  assert.match(flatten(get('engineeringTimerDaily')),/501× \(clamped daily inputs\)/);
+  assert.match(get('engineeringTimerFullDays').textContent,/pooled 1,000× \(clamped\)/);
+  assert.match(share(get('engineeringDays')),/timer pooled 1,000× \(clamped\).*daily mean 501× \(clamped daily inputs\)/);
+  assert.match(share(get('engineeringDays')),/2026-01-01.*effort clamped: central/);
+  assert.match(vm.runInContext('engineeringTimerDay(data.engineering.message_timer.days[0], data.engineering.message_timer)',context),/1,000× \(clamped\)/);
+  for(const row of get('engineeringSensitivity').children.slice(3))assert.equal(row.children[3].textContent,'1,000× (clamped)');
+  assert.match(get('engineeringJointSensitivity').textContent,/low effort.*1,000× \(clamped\).*high effort.*1,000× \(clamped\)/);
+  assert.match(html,/<p id="engineeringClamping"[^>]*role="status"[^>]*hidden><\/p>/);
+  assert.doesNotMatch(html.match(/<p id="engineeringClamping"[^>]*>/)[0],/snapshot-ignore/);
+  assert.equal(vm.runInContext('engineeringRatio(null,true)',context),'N/A');
+  assert.equal(vm.runInContext('engineeringRatio(0,false)',context),'0×');
+  assert.equal(vm.runInContext('engineeringRatio(0,true)',context),'0×');
+  assert.equal(vm.runInContext('engineeringRatio(undefined,true)',context),'N/A');
+  assert.equal(vm.runInContext("engineeringDailyStatistic(0,['2026-01-01'])",context),'0×');
+  assert.equal(vm.runInContext("engineeringDailyStatistic(null,['2026-01-01'])",context),'N/A');
+  assert.equal(vm.runInContext('engineeringRatio(1000,false)',context),'1,000×');
+  clampedReport.clamping.effort=[];vm.runInContext('renderEngineering()',context);
+  assert.match(get('engineeringClamping').textContent,/Clamping applied.*Timer ratios capped at 1,000×/);
+  assert.doesNotMatch(get('engineeringClamping').textContent,/Original estimates|hours per work item/);
+  ct.clamping.applied=false;
+  for(const scope of [ct,ct.full_days,...ct.weekly])for(const population of Object.values(scope.sensitivity))for(const period of Object.values(population))for(const value of Object.values(period.scenarios))value.clamping={pooled:false,daily_dates:[]};
+  ct.days[0].ratio_clamped.supported[5].central=false;clampedReport.days[0].clamped_effort.central=0;
+  vm.runInContext('renderEngineering()',context);
+  assert.equal(get('engineeringClamping').hidden,true);assert.equal(get('engineeringClamping').textContent,'');
+  assert.equal(get('engineeringTimerValue').textContent,'1,000×');
+  assert.doesNotMatch(get('engineeringJointSensitivity').textContent,/clamped/);
+  assert.doesNotMatch(flatten(get('engineeringTimerDaily')),/clamped/);
+  assert.doesNotMatch(share(get('engineeringDays')),/effort clamped/);
+  assert.doesNotMatch(vm.runInContext('engineeringTimerDay(data.engineering.message_timer.days[0], data.engineering.message_timer)',context),/clamped/);
+  clampedReport.clamping.effort=[{date:dates[0],scenario:'central',original_hours:1e308,applied_hours:10000}];
+  delete clampedReport.message_timer;vm.runInContext('renderEngineering()',context);
+  assert.match(get('engineeringClamping').textContent,/10,000.*Original estimates/);
+  assert.doesNotMatch(get('engineeringClamping').textContent,/Timer ratios/);
+  context.data.engineering=beforeClampReport;vm.runInContext('renderEngineering()',context);
+  assert.equal(get('engineeringClamping').hidden,true);
+
   // Draft controls cannot leak into exports or change labels for the applied result.
   get('engineeringScenario').value='high';get('engineeringTimeout').value='10';get('engineeringPopulation').value='inclusive';
   await get('engineeringTimeout').onchange();

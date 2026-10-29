@@ -206,6 +206,39 @@ app.main()
             with sqlite3.connect(self.root/'data/usage.sqlite3') as db:
                 self.assertEqual(json.loads(db.execute('SELECT body FROM engineering_reports WHERE id=?',(result['id'],)).fetchone()[0]),result['report'])
 
+    def test_extreme_import_and_microsecond_timer_export_explicit_clamps(self):
+        import human_inputs,sqlite3
+        from test_engineering import EngineeringTests
+        fixture=EngineeringTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        for key in ('hours_low','hours_central','hours_high'):
+            fixture.doc['work_items'][0]['effort'][key]=0
+            fixture.doc['work_items'][1]['effort'][key]=1e308
+        records=[dict(type='user',uuid='clamp-supported',sessionId='PRIVATE_CLAMP_CHAT',timestamp='2026-01-02T13:00:00Z',origin=dict(kind='human'),message=dict(role='user',content='PRIVATE_CLAMP_PROMPT'))]
+        source=fixture.root/'clamp.jsonl';source.write_text(''.join(json.dumps(r)+'\n' for r in records))
+        human_inputs.save(fixture.db,source,'Claude Code',records);fixture.db.commit()
+        with sqlite3.connect(self.root/'data/usage.sqlite3') as target:fixture.db.backup(target)
+        code,imported=self.request('/api/engineering/import',fixture.doc)
+        self.assertEqual(code,200,imported)
+        (self.root/'clock.txt').write_text('2026-01-02T13:00:00.000001Z')
+        report=self.displayed(dict(start='2026-01-01',end='2026-01-02'))
+        self.assertEqual(report['days'][1]['hours']['central'],10000)
+        self.assertEqual(report['clamping']['effort'][1],dict(date='2026-01-02',scenario='central',original_hours=1e308,applied_hours=10000))
+        timer=report['message_timer'];stats=timer['sensitivity']['supported']['5']
+        self.assertAlmostEqual(stats['denominator_hours'],1e-6/3600)
+        self.assertEqual(stats['scenarios']['central']['pooled'],1000)
+        self.assertTrue(stats['scenarios']['central']['clamping']['pooled'])
+        self.assertTrue(timer['clamping']['applied'])
+        code,result=self.request('/api/engineering/export',dict(report_id=report['report_id'],privacy=True))
+        self.assertEqual(code,200)
+        json.dumps(result,allow_nan=False)
+        self.assertEqual(result['report']['clamping'],report['clamping'])
+        metadata=json.loads(next(csv.reader(io.StringIO(result['csv'])))[1])
+        self.assertEqual(metadata['clamping'],report['clamping'])
+        self.assertEqual(metadata['message_timer'],timer)
+        self.assertNotIn('PRIVATE_CLAMP',json.dumps(result))
+        code,editor=self.request('/api/engineering/assessment');self.assertEqual(code,200)
+        self.assertEqual(editor['assessment']['work_items'][1]['effort']['hours_central'],1e308)
+
     def test_snapshot_validation_expiration_and_bounded_storage(self):
         import app
         report=self.displayed(dict(start='2026-01-01',end='2026-01-03'))

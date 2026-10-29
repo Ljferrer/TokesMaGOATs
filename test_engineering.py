@@ -185,7 +185,7 @@ class EngineeringTests(unittest.TestCase):
             self.assertNotIn(secret,serialized);self.assertNotIn(secret,csv_text)
         csv_rows=list(csv.reader(io.StringIO(csv_text)))
         self.assertEqual(json.loads(csv_rows[0][1])['message_timer'],public['message_timer'])
-        self.assertTrue(json.loads(csv_rows[2][-1])['in_cohort'])
+        self.assertTrue(json.loads(csv_rows[2][csv_rows[1].index('message_timer_json')])['in_cohort'])
         self.assertEqual(sum(json.loads(row[12])['total'] for row in csv_rows[2:]),300)
         # The source may disappear, but retained input metadata and its limitation survive.
         path.unlink();retained=self.view()['message_timer']
@@ -245,11 +245,60 @@ class EngineeringTests(unittest.TestCase):
         for invalid in (float('nan'),float('inf'),-1,True,100):
             bad=copy.deepcopy(changed);bad['version']=3;bad['work_items'][0]['effort']['hours_low']=invalid
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):eng.import_assessment(self.db,bad,'UTC')
-    def test_total_hours_cannot_overflow_even_when_individual_values_are_finite(self):
+    def test_total_hours_are_clamped_before_finite_individual_values_are_summed(self):
         for item in self.doc['work_items']:
             item['effort'].update(hours_low=1e308,hours_central=1e308,hours_high=1e308)
-        with self.assertRaisesRegex(ValueError,'combined'):
-            eng.import_assessment(self.db,self.doc,'UTC')
+        eng.import_assessment(self.db,self.doc,'UTC')
+        result=self.view()
+        self.assertEqual(result['sensitivity']['8']['scenarios']['central']['total_estimated_hours'],20000)
+        self.assertEqual(len(result['clamping']['effort']),6)
+        self.assertEqual(eng.latest(self.db),self.doc,'Clamping must not rewrite immutable original estimates')
+        self.assertEqual(result['days'][0]['items'][0]['original_hours'],dict(low=1e308,central=1e308,high=1e308))
+
+    def test_extreme_effort_serializes_preview_and_exports_with_explicit_caps(self):
+        from app import ReportPreviews
+        self.doc['work_items'][0]['effort'].update(hours_low=1e308,hours_central=1e308,hours_high=1e308)
+        eng.import_assessment(self.db,self.doc,'UTC')
+        inputs=[dict(type='user',uuid='overflow-input',sessionId='private-overflow-chat',timestamp='2026-01-01T13:00:00Z',origin=dict(kind='human'),message=dict(role='user',content='PRIVATE_OVERFLOW_PROMPT'))]
+        path=self.root/'overflow.jsonl';path.write_text(''.join(json.dumps(row)+'\n' for row in inputs))
+        human_inputs.save(self.db,path,'Claude Code',inputs)
+        result=self.view()
+        try:identifier=ReportPreviews().remember(result)
+        except ValueError:self.fail('Finite imported effort must produce a serializable displayed report')
+        self.assertEqual(len(identifier),64)
+        self.assertEqual(result['days'][0]['hours'],dict(low=10000,central=10000,high=10000))
+        self.assertEqual(result['days'][0]['clamped_effort'],dict(low=1,central=1,high=1))
+        self.assertEqual(result['clamping']['effort_hours_limit'],10000)
+        self.assertEqual(result['clamping']['effort'][1],dict(date='2026-01-01',scenario='central',original_hours=1e308,applied_hours=10000))
+        timer=result['message_timer'];self.assertTrue(timer['clamping']['applied'])
+        self.assertEqual(timer['sensitivity']['supported']['5']['scenarios']['central']['pooled'],1000)
+        public=eng.export_report(result)
+        self.assertIn('clamping',public)
+        self.assertEqual(public['clamping'],result['clamping'])
+        self.assertIn('clamped_effort',public['days'][0])
+        self.assertEqual(public['days'][0]['clamped_effort'],dict(low=1,central=1,high=1))
+        csv_rows=list(csv.reader(io.StringIO(eng.csv_report(public))))
+        self.assertIn('clamping',json.loads(csv_rows[0][1]))
+        self.assertEqual(json.loads(csv_rows[0][1])['clamping'],public['clamping'])
+        self.assertIn('clamped_effort_json',csv_rows[1])
+        self.assertEqual(json.loads(csv_rows[2][csv_rows[1].index('clamped_effort_json')]),public['days'][0]['clamped_effort'])
+        self.assertNotIn('private-overflow-chat',eng.encoded(public))
+        self.assertNotIn('PRIVATE_OVERFLOW_PROMPT',eng.encoded(public))
+
+    def test_effort_cap_boundaries_unknowns_and_scope(self):
+        self.doc['work_items'][0]['effort'].update(hours_low=9999.5,hours_central=10000,hours_high=10000.5)
+        self.doc['day_reviews']=self.doc['day_reviews'][1:]
+        eng.import_assessment(self.db,self.doc,'UTC')
+        result=self.view(effort_threshold='0.50')
+        first=result['days'][0]
+        self.assertEqual(first['status'],'unknown');self.assertIsNone(first['hours']['central'])
+        self.assertEqual(first['known_item_hours'],dict(low=9999.5,central=10000,high=10000))
+        self.assertFalse(first['excluded_low_effort'])
+        self.assertEqual(first['clamped_effort'],dict(low=0,central=0,high=1))
+        self.assertEqual(result['clamping']['effort'],[dict(date='2026-01-01',scenario='high',original_hours=10000.5,applied_hours=10000)])
+        restricted=eng.view(self.db,self.config,dict(start='2026-01-02',end='2026-01-03'),cutoff='2026-01-04T00:00:00Z')
+        self.assertEqual(restricted['clamping']['effort'],[])
+        self.assertEqual(eng.template(self.db,'UTC')['work_items'][0]['effort']['hours_high'],10000.5)
 
     def test_shared_commit_accepts_disjoint_scopes_and_configuration_quality(self):
         (self.repo/'config.json').write_text('{"enabled":true}')

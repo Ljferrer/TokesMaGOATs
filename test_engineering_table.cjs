@@ -54,7 +54,7 @@ const frozen=JSON.stringify(report);
 const savedChoices=new Set(['2026-01-06']);
 context.report=report;
 context.renderInputs=date=>{const details=new Element('details');details.dataset.snapshotIgnore='';const checkbox=new Element('input');checkbox.type='checkbox';checkbox.checked=savedChoices.has(date);details.append(checkbox);return details};
-run('renderEngineeringTimerTable(report,renderInputs)');
+assert.doesNotThrow(()=>run('renderEngineeringTimerTable(report,renderInputs)'),'Older reports without clamp metadata still render');
 assert.equal(read().body.children.length,8);
 assert.match(read().count.textContent,/8 of 8 rows.*Date, ascending/);
 assert.match(read().scope.textContent,/2026-01-01 through 2026-01-08.*1 selected projects.*6 matched dates C.*Supported \+ 1 user-included ambiguous inputs/);
@@ -95,4 +95,35 @@ assert.match(read().count.textContent,/2 of 8 rows.*5-minute hours, descending/)
 assert.equal(read().inputs.inputs_min.value,'10','View filters persist through report rerenders');
 context.report={...report,message_timer:{...report.message_timer,days:[]}};run('renderEngineeringTimerTable(report,renderInputs)');
 assert.match(read().count.textContent,/0 of 0 rows/);assert.match(flatten(read().body),/No daily timer data/);
+
+const clampedReport=JSON.parse(JSON.stringify(report));
+clampedReport.days=days.map(day=>({date:day.date,clamped_effort:{low:0,central:0,high:0}}));
+for(const index of [0,1,6]){
+  clampedReport.days[index].clamped_effort.central=1;
+  clampedReport.message_timer.days[index].ratio_clamped={selected:{'5':{central:true}}};
+}
+clampedReport.message_timer.days[0].effort_hours.central=10000;
+clampedReport.message_timer.days[0].ratios.selected['5'].central=1000;
+clampedReport.message_timer.days[2].ratios.selected['5'].central=1000;
+clampedReport.message_timer.days[2].ratio_clamped={selected:{'5':{central:false}}};
+clampedReport.days[3].clamped_effort.high=1;
+context.report=clampedReport;read().clear.onclick();run('renderEngineeringTimerTable(report,renderInputs)');
+const cells=date=>read().body.children.find(row=>row.children[0].textContent===date).children.map(cell=>cell.textContent);
+assert.equal(cells('2026-01-01')[5],'10,000 (clamped)','Capped conventional effort is identified at its displayed value');
+assert.equal(cells('2026-01-01')[6],'1,000× (clamped)','A capped timer quotient is identified at its displayed value');
+assert.equal(cells('2026-01-02')[5],'0');assert.equal(cells('2026-01-02')[6],'0×','Zero never receives an upper-limit marker');
+assert.equal(cells('2026-01-07')[5],'N/A');assert.equal(cells('2026-01-07')[6],'N/A','Unknowns are not converted into capped numbers');
+assert.equal(cells('2026-01-03')[6],'1,000×','The exact limit is not called clamped when the server flag is false');
+assert.equal(cells('2026-01-04')[5],'2','Another scenario being clamped does not mark the current one');
+assert.match(snapshot(host),/10,000 \(clamped\).*1,000× \(clamped\)/,'PNG keeps the visible clamp markers');
+const clampedFrozen=JSON.stringify(clampedReport),numericRows=plain(run('engineeringTimerRows(report)'));
+assert.equal(numericRows[0].effort,10000);assert.equal(numericRows[0].ratio5,1000,'Clamping markers never replace numeric sort/filter values');
+change('ratio5_min','1000');change('ratio5_max','1000');
+assert.deepEqual(read().body.children.map(row=>row.children[0].textContent).sort(),['2026-01-01','2026-01-03']);
+change('effort_min','10000');assert.equal(read().body.children.length,1);assert.equal(cells('2026-01-01')[6],'1,000× (clamped)');
+assert.equal(JSON.stringify(clampedReport),clampedFrozen,'Rendering and filtering do not modify clamp metadata or report values');
+read().clear.onclick();clampedReport.message_timer.options={input_population:'inclusive',effort_scenario:'low'};run('renderEngineeringTimerTable(report,renderInputs)');
+assert.doesNotMatch(flatten(read().body),/clamped/,'Changing population/scenario selects their own clamp flags');
+context.report=report;run('renderEngineeringTimerTable(report,renderInputs)');
+assert.doesNotMatch(flatten(read().body),/clamped/,'Older and unclamped reports clear the markers');
 console.log('Timer table checks passed: every sort direction, raw numeric precision, stable ties, N/A/zero handling, inclusive AND filters, accessible headers, clear/rerender state, scope-labeled snapshots and unchanged input selections.');

@@ -17,6 +17,7 @@ function engineeringTimerRows(report) {
   if(!timer)return [];
   const {input_population:population,effort_scenario:scenario}=timer.options;
   const number=value=>typeof value==='number'&&Number.isFinite(value)?value:null;
+  const effortClamps=new Map((report.days||[]).map(day=>[day.date,day.clamped_effort]));
   const reasons={outside_token_active_scope:'Outside token-active scope',low_effort_filter:'Low-effort filter',unknown_output:'Unknown output',no_supported_reference_timer:'No supported reference time'};
   return timer.days.map(day=>({
     date:day.date,
@@ -26,6 +27,7 @@ function engineeringTimerRows(report) {
     hours10:number(day.hours[population]['10']),
     effort:number(day.effort_hours[scenario]),
     ratio5:number(day.ratios[population]['5'][scenario]),
+    clamped:{effort:(effortClamps.get(day.date)?.[scenario]||0)>0,ratio5:day.ratio_clamped?.[population]?.['5']?.[scenario]===true},
     evidence:[day.in_cohort?'Matched date':reasons[day.exclusion_reason]||'Outside matched dates',day.effort_status==='assessed'?'Assessed output':'Output unknown',day.partial_day?'Partial day':''].filter(Boolean).join(' · '),
   }));
 }
@@ -81,7 +83,8 @@ function refreshEngineeringTimerTable() {
     const tr=document.createElement('tr');
     for(const column of engineeringTimerColumns){
       const value=row[column.key];
-      const cell=engineeringText('td',value===null||value===undefined?'N/A':column.kind==='number'?engineeringNumber(value,column.key==='ratio5'?'×':''):value);
+      const label=value===null||value===undefined?'N/A':column.kind==='number'?engineeringNumber(value,column.key==='ratio5'?'×':''):value;
+      const cell=engineeringText('td',label+(value>0&&row.clamped?.[column.key]?' (clamped)':''));
       if(column.key==='evidence'&&engineeringTimerTableInputs){const inputs=engineeringTimerTableInputs(row.date);if(inputs)cell.append(inputs)}
       tr.append(cell);
     }

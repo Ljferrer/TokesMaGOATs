@@ -27,26 +27,37 @@ function renderEngineeringThresholdControl() {
   $('engineeringThreshold').ariaValueText=label;
   $('engineeringThreshold').disabled=!$('engineeringIgnoreDays').checked;
 }
-function engineeringRatio(value) {
-  return value===null||value===undefined?'N/A':engineeringNumber(value,'×');
+function engineeringRatio(value,clamped=false) {
+  return value===null||value===undefined?'N/A':engineeringNumber(value,'×')+(clamped&&value>0?' (clamped)':'');
+}
+function engineeringDailyStatistic(value,clampedDates) {
+  return engineeringRatio(value)+(value>0&&clampedDates?.length?' (clamped daily inputs)':'');
+}
+function renderEngineeringClamping(report) {
+  const effort=report?.clamping?.effort||[],timer=report?.message_timer?.clamping,notice=$('engineeringClamping');
+  const messages=[];
+  if(effort.length)messages.push(`${effort.length} scenario estimates capped at ${engineeringNumber(report.clamping.effort_hours_limit)} hours per work item. Original estimates remain in the local assessment.`);
+  if(timer?.applied)messages.push(`Timer ratios capped at ${engineeringNumber(timer.ratio_limit,'×')}; affected values are marked. Daily statistics use clamped daily ratios; pooled ratios are clamped independently.`);
+  notice.hidden=!messages.length;
+  notice.textContent=messages.length?'Clamping applied. '+messages.join(' '):'';
 }
 function engineeringPopulationLabel(timer,population) {
   return population==='supported'?'Supported human inputs':population==='selected'?timer.selection.label:'All ambiguous-inclusive inputs';
 }
-function engineeringDailyStats(id,values) {
+function engineeringDailyStats(id,values,clampedDates=[]) {
   $(id).replaceChildren();
-  for(const [label,value] of values){const pair=document.createElement('div');pair.append(engineeringText('dt',label),engineeringText('dd',engineeringRatio(value)));$(id).append(pair)}
+  for(const [label,value] of values){const pair=document.createElement('div');pair.append(engineeringText('dt',label),engineeringText('dd',engineeringDailyStatistic(value,clampedDates)));$(id).append(pair)}
 }
 function engineeringTimerDay(day,timer) {
   const {idle_timeout,input_population,effort_scenario}=timer.options;
   const duration=day.hours[input_population][String(idle_timeout)],ratio=day.ratios[input_population][String(idle_timeout)][effort_scenario];
   const reason={outside_token_active_scope:'outside token-active scope',low_effort_filter:'low-effort filter',unknown_output:'unknown output',no_supported_reference_timer:'no supported reference time'}[day.exclusion_reason];
-  return `${day.date} · ${day.in_cohort?'matched date':'outside matched dates: '+reason} · ${engineeringNumber(duration,' modeled chat h')} · ${effort_scenario} timer equivalent ${day.effort_status==='assessed'?engineeringRatio(ratio):'Unknown output'}${day.partial_day?' · partial day':''}`;
+  return `${day.date} · ${day.in_cohort?'matched date':'outside matched dates: '+reason} · ${engineeringNumber(duration,' modeled chat h')} · ${effort_scenario} timer equivalent ${day.effort_status==='assessed'?engineeringRatio(ratio,day.ratio_clamped?.[input_population]?.[String(idle_timeout)]?.[effort_scenario]):'Unknown output'}${day.partial_day?' · partial day':''}`;
 }
 function engineeringMatchedWeek(week,timer,hours) {
   const {input_population,idle_timeout,effort_scenario}=timer.options;
   const selected=week.sensitivity[input_population][String(idle_timeout)],value=selected.scenarios[effort_scenario],fixed=week.matched_fixed[hours];
-  return `Matched weekly comparison · ${week.dates.length} dates · ${effort_scenario} conventional effort ${engineeringNumber(value.numerator_hours,' h')} · fixed ${engineeringRatio(fixed.scenarios[effort_scenario].average)} / ${engineeringNumber(fixed.denominator_hours,' assumed h')} · timer pooled ${engineeringRatio(value.pooled)} / ${engineeringNumber(selected.denominator_hours,' modeled chat h')} · timer unweighted daily mean ${engineeringRatio(value.daily_mean)}.`;
+  return `Matched weekly comparison · ${week.dates.length} dates · ${effort_scenario} conventional effort ${engineeringNumber(value.numerator_hours,' h')} · fixed ${engineeringRatio(fixed.scenarios[effort_scenario].average)} / ${engineeringNumber(fixed.denominator_hours,' assumed h')} · timer pooled ${engineeringRatio(value.pooled,value.clamping?.pooled)} / ${engineeringNumber(selected.denominator_hours,' modeled chat h')} · timer unweighted daily mean ${engineeringDailyStatistic(value.daily_mean,value.clamping?.daily_dates)}.`;
 }
 function renderEngineeringComparison(e,hours) {
   const t=e.message_timer;
@@ -64,19 +75,19 @@ function renderEngineeringComparison(e,hours) {
   $('engineeringFixedCalculation').textContent=`${engineeringNumber(f.active_date_estimated_hours,' conventional h')} ÷ ${engineeringNumber(fixed.denominator_hours,' assumed h')} (${cohort.dates.length} dates × ${hours} h). Period ratio equals the arithmetic daily mean.`;
   $('engineeringFixedMethod').textContent=`${scenario} effort · matched dates C · method ${t.fixed_method_version} · comparison day ${hours} h; not recorded human time.`;
   engineeringDailyStats('engineeringFixedDaily',[['Minimum',f.minimum],['Maximum',f.maximum],['Median',f.median],['Arithmetic mean',f.average]]);
-  $('engineeringTimerValue').textContent=engineeringRatio(s.pooled);
-  $('engineeringTimerCalculation').textContent=`Pooled ratio: ${engineeringNumber(s.numerator_hours,' conventional h')} ÷ ${engineeringNumber(stats.denominator_hours,' modeled chat h')}. The headline is the ratio of sums, not the unweighted daily mean.`;
+  $('engineeringTimerValue').textContent=engineeringRatio(s.pooled,s.clamping?.pooled);
+  $('engineeringTimerCalculation').textContent=s.clamping?.pooled?`Clamped pooled ratio: ${engineeringNumber(s.numerator_hours,' conventional h')} ÷ ${engineeringNumber(stats.denominator_hours,' modeled chat h')} exceeds the ${engineeringNumber(t.clamping.ratio_limit,'×')} reporting limit.`:`Pooled ratio: ${engineeringNumber(s.numerator_hours,' conventional h')} ÷ ${engineeringNumber(stats.denominator_hours,' modeled chat h')}. The headline is the ratio of sums, not the unweighted daily mean.`;
   $('engineeringTimerMethod').textContent=`${scenario} effort · matched dates C · method ${t.method_version} · ${idle_timeout}-minute timeout · ${population}.`;
-  engineeringDailyStats('engineeringTimerDaily',[['Daily minimum',s.daily_minimum],['Daily maximum',s.daily_maximum],['Daily median',s.daily_median],['Unweighted daily mean',s.daily_mean]]);
+  engineeringDailyStats('engineeringTimerDaily',[['Daily minimum',s.daily_minimum],['Daily maximum',s.daily_maximum],['Daily median',s.daily_median],['Unweighted daily mean',s.daily_mean]],s.clamping?.daily_dates);
   const full=t.full_days.sensitivity[input_population][timeout],fullFixed=t.full_days.matched_fixed[hours];
   $('engineeringMatchedFixedFullDays').textContent=`Full days only: ${t.full_days.dates.length} matched dates; ${engineeringRatio(fullFixed.scenarios[scenario].average)} from ${engineeringNumber(fullFixed.scenarios[scenario].active_date_estimated_hours,' conventional h')} / ${engineeringNumber(fullFixed.denominator_hours,' assumed h')}.`;
-  $('engineeringTimerFullDays').textContent=`Full days only: ${full.cohort_dates.length} matched dates; pooled ${engineeringRatio(full.scenarios[scenario].pooled)} from ${engineeringNumber(full.scenarios[scenario].numerator_hours,' conventional h')} / ${engineeringNumber(full.denominator_hours,' modeled chat h')}. ${stats.defined_daily_dates.length}/${cohort.dates.length} selected daily ratios are defined; ${stats.zero_timer_dates.length} dates have zero modeled time at this timeout.`;
+  $('engineeringTimerFullDays').textContent=`Full days only: ${full.cohort_dates.length} matched dates; pooled ${engineeringRatio(full.scenarios[scenario].pooled,full.scenarios[scenario].clamping?.pooled)} from ${engineeringNumber(full.scenarios[scenario].numerator_hours,' conventional h')} / ${engineeringNumber(full.denominator_hours,' modeled chat h')}. ${stats.defined_daily_dates.length}/${cohort.dates.length} selected daily ratios are defined; ${stats.zero_timer_dates.length} dates have zero modeled time at this timeout.`;
   $('engineeringTimerLimits').textContent='Timers union overlapping input windows across all selected chats and providers before splitting by local date. Timer date/project scope matches delivery; provider/model/role filters affect usage and agent activity only. The model can include waiting and miss reading, typing, reviews, meetings and other off-chat work. No supported timer is not evidence of a day off; matched dates do not establish complete time coverage.';
-  const addSensitivity=(label,numerator,denominator,ratio)=>{const row=document.createElement('tr');for(const value of [label,engineeringNumber(numerator,' h'),engineeringNumber(denominator,' h'),engineeringRatio(ratio)])row.append(engineeringText('td',value));$('engineeringSensitivity').append(row)};
+  const addSensitivity=(label,numerator,denominator,ratio,clamped=false)=>{const row=document.createElement('tr');for(const value of [label,engineeringNumber(numerator,' h'),engineeringNumber(denominator,' h'),engineeringRatio(ratio,clamped)])row.append(engineeringText('td',value));$('engineeringSensitivity').append(row)};
   for(const h of ['4','8','12']){const value=t.matched_fixed[h];addSensitivity(`Fixed · ${h} h/day · ${scenario}`,value.scenarios[scenario].active_date_estimated_hours,value.denominator_hours,value.scenarios[scenario].average)}
-  for(const p of Object.keys(t.sensitivity))for(const tau of ['2','5','10']){const value=t.sensitivity[p][tau],selected=value.scenarios[scenario];addSensitivity(`Timer · ${tau} min · ${engineeringPopulationLabel(t,p)} · ${scenario}`,selected.numerator_hours,value.denominator_hours,selected.pooled)}
+  for(const p of Object.keys(t.sensitivity))for(const tau of ['2','5','10']){const value=t.sensitivity[p][tau],selected=value.scenarios[scenario];addSensitivity(`Timer · ${tau} min · ${engineeringPopulationLabel(t,p)} · ${scenario}`,selected.numerator_hours,value.denominator_hours,selected.pooled,selected.clamping?.pooled)}
   const joint=t.joint[input_population];
-  $('engineeringJointSensitivity').textContent=`Joint assumption sensitivity (${population}, same C): low effort / 10-minute timer ${engineeringRatio(joint.low)}; high effort / 2-minute timer ${engineeringRatio(joint.high)}. A zero denominator is N/A. These are not confidence intervals or true bounds.`;
+  $('engineeringJointSensitivity').textContent=`Joint assumption sensitivity (${population}, same C): low effort / 10-minute timer ${engineeringRatio(joint.low,t.sensitivity[input_population]['10'].scenarios.low.clamping?.pooled)}; high effort / 2-minute timer ${engineeringRatio(joint.high,t.sensitivity[input_population]['2'].scenarios.high.clamping?.pooled)}. A zero denominator is N/A. These are not confidence intervals or true bounds.`;
   $('engineeringFullScope').textContent=`Full token-active scope D: ${cohort.token_active_dates.length} dates; ${cohort.eligible_after_filter_dates.length} after the low-effort filter; ${cohort.assessed_dates.length} assessed and ${cohort.unknown_dates.length} unknown. Outside matched C: ${cohort.no_supported_timer_dates.length} dates without supported reference time, ${cohort.low_effort_excluded_dates.length} low-effort dates, and ${engineeringNumber(cohort.excluded_assessed_hours[scenario],' assessed '+scenario+' conventional h')} excluded from the paired comparison. Another ${engineeringNumber(cohort.excluded_known_item_hours[scenario],' known item h')} on unknown-output dates is incomplete evidence. Unknown output is not treated as zero.`;
   const c=t.coverage;
   $('engineeringHumanCoverage').textContent=`Human-input classifier ${t.classifier_version}. All retained sources: ${c.retained_sources??0} retained source files, ${c.current_sources??0} current, ${c.missing_sources??0} missing, ${c.changed_sources??0} changed, ${c.unsupported_sources??0} unsupported; ${c.invalid_timestamp_records??0} invalid timestamps across retained sources. Selected input metadata: ${c.supported_human??0} supported, ${c.ambiguous??0} ambiguous, ${c.excluded??0} excluded. ${c.carry_in_events??0} carry-in events considered from up to 10 minutes before the selection. Boundary context: ${c.boundary_context==='unavailable'?'unavailable':'retained records only'}; complete history is not established. Source counts do not estimate missing human hours.`;
@@ -180,7 +191,7 @@ let engineeringAppliedReportId=null;
 function renderEngineering() {
   engineeringAppliedReportId=null;
   $('engineeringEditor').hidden=preferences.privacy;
-  const e=data?.engineering;if(!e)return;
+  const e=data?.engineering;renderEngineeringClamping(e);if(!e)return;
   const hours=String(e.day_filter?.comparison_hours||(['4','8','12'].includes($('engineeringHours').value)?$('engineeringHours').value:8));
   const stats=e.sensitivity[hours],full=e.full_days[hours];
   const scenario=e.message_timer?.options.effort_scenario||'central';
@@ -230,8 +241,9 @@ function renderEngineering() {
 }
 function engineeringDay(day,e,hours) {
   const details=document.createElement('details');
+  const clampedEffort=Object.entries(day.clamped_effort||{}).filter(([,count])=>count>0).map(([scenario])=>scenario);
   const estimates=day.status==='assessed'?['low','central','high'].map(s=>engineeringNumber(day.hours[s]/Number(hours),'×')).join(' / '):'Unknown';
-  details.append(engineeringText('summary',`${day.date}${day.partial_day?' · partial day':''}${day.excluded_low_effort?' · excluded from effort statistics':''} · ${day.eligible?'token-active':'outside active-day denominator'} · ${day.status} · low / central / high ${estimates} · ${day.items.length} work items · ${day.integrations.length} integrations · ${day.deployments?.length||0} evidenced deployments · ${day.unknown_items.length} unknown items · ${day.unmapped_projects?.length||0} unmapped projects`));
+  details.append(engineeringText('summary',`${day.date}${day.partial_day?' · partial day':''}${day.excluded_low_effort?' · excluded from effort statistics':''} · ${day.eligible?'token-active':'outside active-day denominator'} · ${day.status}${clampedEffort.length?' · effort clamped: '+clampedEffort.join(', '):''} · low / central / high ${estimates} · ${day.items.length} work items · ${day.integrations.length} integrations · ${day.deployments?.length||0} evidenced deployments · ${day.unknown_items.length} unknown items · ${day.unmapped_projects?.length||0} unmapped projects`));
   details.append(engineeringText('p',engineeringMetricLine(e.usage.days[day.date]),'muted'));
   const timerDay=e.message_timer?.days.find(d=>d.date===day.date);
   if(timerDay)details.append(engineeringText('p',engineeringTimerDay(timerDay,e.message_timer),'muted'));

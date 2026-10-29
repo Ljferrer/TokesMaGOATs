@@ -20,6 +20,7 @@ import message_timer
 import input_selections
 
 SCENARIOS = ('low', 'central', 'high')
+MAX_EFFORT_HOURS = 10000
 DIMENSIONS = ('correctness', 'regression_protection', 'maintainability', 'operational_safeguards')
 BASELINE = 'Experienced engineer familiar with the codebase, conventional tools without coding agents; incremental design, implementation, debugging, verification, integration and review.'
 DISCLAIMER = 'Under the selected conventional-effort assumptions and comparison day; not a measured causal productivity multiplier.'
@@ -288,8 +289,6 @@ def validate_assessment(db, document, timezone):
                 refs(test['evidence'], 'test evidence')
     for item in document['work_items']:
         require(set(item['related_items']) <= item_ids-{item['id']}, 'Unknown or self-referential related item')
-    for scenario in SCENARIOS:
-        require(math.isfinite(sum(item['effort']['hours_'+scenario] for item in document['work_items'] if item['effort']['status']=='assessed')), 'The combined scenario hours must remain finite')
     excluded = set()
     for entry in array(document['excluded_integrations'], 'excluded_integrations'):
         exact_keys(entry, ('repository', 'head', 'reason', 'evidence'))
@@ -412,10 +411,11 @@ def view(db, config, filters, cutoff=None):
     repositories = {k:r for k,r in repositories.items() if not filters.get('projects') or r['project'] in filters['projects']}
     all_integrations = {(r,i['head']):i for r,s in full_repositories.items() for i in s['integrations']}
     days = {}
+    clamping = dict(effort_hours_limit=MAX_EFFORT_HOURS, effort=[])
     def day_row(day):
         if not filters.get('start', '0001-01-01') <= day <= filters.get('end', '9999-12-31'):
             return None
-        return days.setdefault(day, dict(date=day, eligible=False, partial_day=day==today, hours={s:0 for s in SCENARIOS}, items=[], integrations=[], deployments=[], unknown_items=[], unmapped_projects=[], status='unknown', review=None))
+        return days.setdefault(day, dict(date=day, eligible=False, partial_day=day==today, hours={s:0 for s in SCENARIOS}, clamped_effort={s:0 for s in SCENARIOS}, items=[], integrations=[], deployments=[], unknown_items=[], unmapped_projects=[], status='unknown', review=None))
     for day,u in delivery_usage['days'].items():
         day_row(day)['eligible'] = u['total']>0
     for day in agent_activity['days']:
@@ -459,6 +459,19 @@ def view(db, config, filters, cutoff=None):
             if row is None:
                 continue
             enriched = dict(item, method=document['method'], method_version=document['method_version'], reviewer=document['reviewer'], assessment_version=document['version'], quality=[])
+            if item['effort']['status'] == 'assessed':
+                enriched['effort'] = dict(item['effort'])
+                original_hours = {}
+                for scenario in SCENARIOS:
+                    original = item['effort']['hours_'+scenario]
+                    applied = min(original, MAX_EFFORT_HOURS)
+                    enriched['effort']['hours_'+scenario] = applied
+                    if original > MAX_EFFORT_HOURS:
+                        original_hours[scenario] = original
+                        row['clamped_effort'][scenario] += 1
+                        clamping['effort'].append(dict(date=date, scenario=scenario, original_hours=original, applied_hours=applied))
+                if original_hours:
+                    enriched['original_hours'] = original_hours
             for review in item['quality']:
                 scores = review['scores']
                 complete = review['status']=='assessed' and all(v is not None for v in scores.values())
@@ -470,7 +483,7 @@ def view(db, config, filters, cutoff=None):
             row['items'].append(enriched)
             if item['effort']['status'] == 'assessed':
                 for s in SCENARIOS:
-                    row['hours'][s] += item['effort']['hours_'+s]
+                    row['hours'][s] += enriched['effort']['hours_'+s]
             else:
                 row['unknown_items'].append(item['id'])
         reviews = {d['date']:d for d in document['day_reviews']}
@@ -515,7 +528,7 @@ def view(db, config, filters, cutoff=None):
     input_selection = input_selections.get(db, selection_version(filters))
     human['selection'] = input_selections.resolve(db, known['events'], known['classifier_version'], input_selection['version'])
     timer = message_timer.build(ordered, human, zone_name, filters, cutoff)
-    timer['fixed_method_version'] = 'fixed-day-v1'
+    timer['fixed_method_version'] = 'fixed-day-v2'
     for comparison, dates in [(timer, timer['cohort']['dates']), (timer['full_days'], timer['full_days']['dates']), *[(week, week['dates']) for week in timer['weekly']]]:
         cohort = set(dates)
         matched = [row for row in ordered if row['date'] in cohort]
@@ -536,7 +549,7 @@ def view(db, config, filters, cutoff=None):
                 assessment_version=document['version'] if document else None, privacy_mode=False,
                 delivery_scope='Date/project scope; provider/model/role filters apply only to usage and activity. No evidence-backed model attribution to Git changes.',
                 repositories=[{k:r[k] for k in ('id','repository','project','default_ref','tip','observed_at','limitations')} for r in repositories.values()],
-                days=ordered, weekly=weekly, usage=usage, activity=agent_activity, day_filter=day_filter, message_timer=timer,
+                days=ordered, weekly=weekly, usage=usage, activity=agent_activity, day_filter=day_filter, message_timer=timer, clamping=clamping,
                 human_inputs=dict(events=input_details, selection=input_selection, resolution=timer['selection']),
                 sensitivity={str(h):statistics_for(ordered,h) for h in (4,8,12)},
                 full_days={str(h):statistics_for([r for r in ordered if not r['partial_day']],h) for h in (4,8,12)},
@@ -550,12 +563,12 @@ def view(db, config, filters, cutoff=None):
 
 def export_report(report, private=True):
     """Allowlisted share representation. Free text, revisions, paths and identities stay local."""
-    result = {k:report[k] for k in ('label','baseline','disclaimer','cutoff','assessment_cutoff','timezone','assessment_version','delivery_scope','sensitivity','full_days','weekly','assumptions','day_filter','message_timer')}
+    result = {k:report[k] for k in ('label','baseline','disclaimer','cutoff','assessment_cutoff','timezone','assessment_version','delivery_scope','sensitivity','full_days','weekly','assumptions','day_filter','message_timer','clamping')}
     result['privacy_mode'] = private
     result['selection'] = {k:v for k,v in report['selection'].items() if k != 'projects'}
     result['selection']['project_count'] = len(report['selection'].get('projects', []))
     result['evidence_detail'] = 'References, scope text, source paths/hashes, identities and repository revisions omitted from share exports. Use explicit local assessment export for editing.'
-    result['days'] = [{k:row[k] for k in ('date','eligible','partial_day','hours','status','excluded_low_effort')} | dict(unknown_items=len(row['unknown_items']), unmapped_projects=len(row['unmapped_projects']), work_items=len(row['items']), integrations=len(row['integrations']), deployments=len(row['deployments']), quality_scores=[q['quality_score'] for item in row['items'] for q in item['quality']]) for row in report['days']]
+    result['days'] = [{k:row[k] for k in ('date','eligible','partial_day','hours','status','excluded_low_effort','clamped_effort')} | dict(unknown_items=len(row['unknown_items']), unmapped_projects=len(row['unmapped_projects']), work_items=len(row['items']), integrations=len(row['integrations']), deployments=len(row['deployments']), quality_scores=[q['quality_score'] for item in row['items'] for q in item['quality']]) for row in report['days']]
     result['usage'] = report['usage']
     result['activity'] = dict(report['activity'], days={d:{k:v for k,v in row.items() if k not in ('identities','positive_identity_ids')} for d,row in report['activity']['days'].items()})
     return result
@@ -567,8 +580,8 @@ def csv_report(report):
     for key in ('usage','activity'):
         metadata[key] = {k:v for k,v in report[key].items() if k != 'days'}
     writer.writerow(['metadata_json', encoded(metadata)])
-    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores','excluded_low_effort','message_timer_json'])
+    writer.writerow(['date','status','eligible','partial_day','hours_low','hours_central','hours_high','unknown_items','unmapped_projects','work_items','integrations','deployments','usage_json','activity_json','quality_scores','excluded_low_effort','message_timer_json','clamped_effort_json'])
     timer_days = {day['date']:day for day in report['message_timer']['days']}
     for row in report['days']:
-        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores']),row['excluded_low_effort'],encoded(timer_days.get(row['date']))])
+        writer.writerow([row['date'],row['status'],row['eligible'],row['partial_day'],*[row['hours'][s] for s in SCENARIOS],row['unknown_items'],row['unmapped_projects'],row['work_items'],row['integrations'],row['deployments'],encoded(report['usage']['days'].get(row['date'])),encoded(report['activity']['days'].get(row['date'])),encoded(row['quality_scores']),row['excluded_low_effort'],encoded(timer_days.get(row['date'])),encoded(row['clamped_effort'])])
     return stream.getvalue()
