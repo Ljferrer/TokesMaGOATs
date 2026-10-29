@@ -40,7 +40,7 @@ engineering.now=lambda: (app.BASE/'clock.txt').read_text().strip() if (app.BASE/
 sys.argv=["app.py","--port",sys.argv[2]]
 app.main()
 """
-        cls.server=subprocess.Popen([sys.executable,'-c',script,str(cls.root),str(cls.port)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        cls.server=subprocess.Popen([sys.executable,'-c',script,str(cls.root),str(cls.port)],cwd=Path(__file__).resolve().parents[1],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
         for _ in range(100):
             try:
                 urllib.request.urlopen(cls.base+'/api/state',timeout=.2).close();break
@@ -157,7 +157,7 @@ app.main()
 
     def test_applied_snapshot_survives_time_evidence_assessment_and_choice_changes(self):
         import app,engineering,human_inputs,sqlite3
-        from test_engineering import EngineeringTests
+        from test.test_engineering import EngineeringTests
         fixture=EngineeringTests();fixture.setUp()
         self.addCleanup(fixture.tearDown)
         engineering.import_assessment(fixture.db,fixture.doc,'UTC')
@@ -208,7 +208,7 @@ app.main()
 
     def test_extreme_import_and_microsecond_timer_export_explicit_clamps(self):
         import human_inputs,sqlite3
-        from test_engineering import EngineeringTests
+        from test.test_engineering import EngineeringTests
         fixture=EngineeringTests();fixture.setUp();self.addCleanup(fixture.tearDown)
         for key in ('hours_low','hours_central','hours_high'):
             fixture.doc['work_items'][0]['effort'][key]=0

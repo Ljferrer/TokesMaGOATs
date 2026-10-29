@@ -8,7 +8,7 @@ import unittest
 import input_selections as selections
 import human_inputs
 import message_timer
-from test_human_inputs import codex_input, codex_meta, codex_start
+from test.test_human_inputs import codex_input, codex_meta, codex_start
 
 
 CLASSIFIER = 'human-inputs-v1'

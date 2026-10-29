@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 class Element {
   constructor(tag='div'){this.tag=tag;this.children=[];this.dataset={};this.style={};this.attrs={};this.value='2026';const classes=new Set();this.classList={add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name),toggle(name,on){if(on)classes.add(name);else classes.delete(name)}};}
@@ -13,7 +14,7 @@ const document = {
   getElementById(id){if(!elements.has(id))elements.set(id,new Element());return elements.get(id)},
   createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),querySelectorAll:()=>[]
 };
-const script=fs.readFileSync('index.html','utf8').split('<script>')[1].split('</script>')[0];
+const script=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8').split('<script>')[1].split('</script>')[0];
 const context=vm.createContext({document,Intl,Date,URLSearchParams});
 vm.runInContext(script.slice(0,script.indexOf("// Bind controls")),context);
 const evaluate=code=>vm.runInContext(code,context);
@@ -60,7 +61,7 @@ assert.equal(elements.get('dayPie').children[0].style.width,'220px');
 buttons.at(-1).onmouseenter();assert.equal(elements.get('dayPie').textContent,'No recorded tokens for this day.');
 assert.equal(elements.get('dayPieLegend').children.length,0);
 buttons[buttons.length-3].onclick();assert.equal(elements.get('dayPieLegend').children.length,4);
-assert.match(fs.readFileSync('index.html','utf8'),/<details class="panel" id="dailyLedger">/);
+assert.match(fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8'),/<details class="panel" id="dailyLedger">/);
 evaluate("data.days['2026-09-09']={total:10,subagent:0,breakdown:{main:{alpha:10},subagent:{}}};renderDay('2026-09-09')");
 slices=elements.get('dayPie').children[0].children.filter(n=>n.attrs.class==='pie-slice');
 assert.equal(slices.length,1);assert.equal(slices[0].tag,'circle');

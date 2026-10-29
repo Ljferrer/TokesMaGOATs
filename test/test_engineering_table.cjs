@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 class Element {
   constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.style={};this.attributes={};this.textContent='';this.value=''}
   append(...nodes){this.children.push(...nodes)}
@@ -8,7 +8,7 @@ class Element {
 }
 const host=new Element('div');
 const context=vm.createContext({Intl,document:{createElement:tag=>new Element(tag)},$:id=>{assert.equal(id,'engineeringTimerTable');return host},engineeringText:(tag,text,className)=>{const node=new Element(tag);node.textContent=text;node.className=className;return node},engineeringNumber:(value,suffix='')=>new Intl.NumberFormat('en',{maximumFractionDigits:2}).format(value)+suffix,fetch:()=>{throw Error('Table views must not call the API')}});
-vm.runInContext(fs.readFileSync('engineering_table.js','utf8'),context);
+vm.runInContext(fs.readFileSync(path.join(__dirname,'..','engineering_table.js'),'utf8'),context);
 const run=code=>vm.runInContext(code,context),read=()=>run('engineeringTimerTableDOM');
 const plain=value=>JSON.parse(JSON.stringify(value));
 const flatten=node=>node.textContent+' '+node.children.map(flatten).join(' ');

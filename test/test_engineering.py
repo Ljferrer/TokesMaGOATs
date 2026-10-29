@@ -65,7 +65,7 @@ class EngineeringTests(unittest.TestCase):
 
     def test_invalid_saved_alias_remains_visible_outside_report_scope(self):
         import input_selections
-        from test_human_inputs import codex_meta, codex_start, codex_input
+        from test.test_human_inputs import codex_meta, codex_start, codex_input
         eng.import_assessment(self.db,self.doc,'UTC')
         def source(name, message_id, time, canonical=None, human=False):
             rows=[codex_meta(),codex_start(),codex_input(message_id,original_time=time,canonical_id=canonical,human=human)]

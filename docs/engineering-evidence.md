@@ -145,7 +145,7 @@ Activity metadata stores identities and parent links separately from sessions. C
 
 JSON/CSV share exports contain selections (project count without private labels), assumptions, cutoffs, coverage, partial-day status, privacy mode and numeric evidence. They omit raw/private free text, private source references/hashes, repository revisions/paths and agent identities; explicit ambiguous-input selections retain their IDs/version as calculation metadata. PNGs omit local evidence/editor controls and show the visible privacy mode. Changing aliases only changes display labels; it does not merge canonical repositories or allocate effort. Explicit **Save local assessment JSON** and local input-selection JSON retain review details for editing and are labeled private.
 
-Validation: `python3 -m unittest -v`, `node test_dashboard.cjs`, and `node test_engineering_dashboard.cjs`.
+Validation commands are listed in the [README](../README.md#verify).
 
 An optional integration annotation is `{repository, head, pr, deployments}`. `pr` is null or `{url, evidence}` with an HTTPS PR URL and explicit evidence references. It labels the delivery as a PR integration while retaining Git topology (`merge`/`direct_commit`); no PR is guessed from a subject. `deployments` contains `{id, timestamp, evidence}` objects with unique IDs and offset-bearing timestamps between integration and cutoff. Independently evidenced deployments appear on their observed dates and never create another effort credit. Weekly views aggregate token categories, reconciliation coverage, distinct identities, observed peaks, integrations, deployments and sampled quality; daily drilldowns retain the evidence.
 
