@@ -42,6 +42,7 @@
       clone.querySelectorAll('.chart-scroll,.gridwrap,#detail').forEach(node => {
         node.style.overflow = 'visible';
         node.style.maxWidth = 'none';
+        node.style.maxHeight = 'none';
       });
       // Size for readable exports regardless of the browser's viewport.
       clone.style.width = '100%';
