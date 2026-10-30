@@ -112,6 +112,10 @@ def contexts(config):
                 key = (provider, session)
                 if key not in result or 'subagents' not in path.parts:
                     result[key] = dict(project=project_name(meta.get('cwd')), title=title, parent=None, basis=basis)
+    for override in config.get('session_project_overrides', []):
+        key = (override['provider'], override['session'])
+        topic = result.setdefault(key, dict(title=override.get('title', ''), parent=None))
+        topic.update(project=override['project'], basis=override['basis'], parent=None)
     # Child work belongs to its root task, not a generic auditor/subagent name.
     for key in result:
         current, seen = key, set()
