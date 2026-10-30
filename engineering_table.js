@@ -107,11 +107,11 @@ function renderEngineeringTimerTable(report,renderInputs=null) {
   const host=$('engineeringTimerTable');
   if(!engineeringTimerTableDOM||engineeringTimerTableDOM.host!==host){
     host.replaceChildren();
-    host.append(engineeringText('h3','Daily timer detail','engineering-section-heading'));
     host.append(engineeringText('p','These filters affect table rows only. They do not recalculate cards, change input selections or redefine the matched cohort C. Use the global date/project controls to change the report. JSON/CSV exports contain the full report; a PNG preserves this labeled table view subset.','muted'));
     const count=engineeringText('p','','muted'),scope=engineeringText('p','','muted');count.setAttribute('aria-live','polite');
     const clear=engineeringText('button','Clear filters');clear.type='button';clear.dataset.snapshotIgnore='';
-    const wrap=document.createElement('div');wrap.className='chart-scroll';wrap.style.overflowX='auto';
+    const wrap=document.createElement('div');wrap.className='chart-scroll engineering-timer-scroll';
+    wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','Scrollable daily timer detail');
     const table=document.createElement('table'),head=document.createElement('thead'),headRow=document.createElement('tr'),filterRow=document.createElement('tr'),body=document.createElement('tbody');
     table.style.minWidth='1100px';table.setAttribute('aria-label','Daily message-timer detail');filterRow.dataset.snapshotIgnore='';
     const headers={},indicators={},buttons={},inputs={};
