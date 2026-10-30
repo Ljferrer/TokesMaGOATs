@@ -28,3 +28,20 @@ class TopicTests(unittest.TestCase):
     def test_unknown_and_reviews(self):
         self.assertEqual(activity(''), 'Unclassified work')
         self.assertEqual(activity('Review implementation plan'), 'Reviews & audits')
+
+    def test_verified_project_override_survives_refresh_and_reaches_children(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for session, parent in [('parent', None), ('child', 'parent')]:
+                payload = dict(id=session, cwd='/tmp/fixture', source={'subagent': {'thread_spawn': {'parent_thread_id': parent}}})
+                (root / (session + '.jsonl')).write_text(json.dumps(dict(type='session_meta', payload=payload)) + '\n')
+            config = dict(sources=[dict(provider='Codex', path=temp)], session_project_overrides=[
+                dict(provider='Codex', session='parent', project='Example', basis='Verified parent task'),
+                dict(provider='Codex', session='archived-review', project='Example', title='Snipe review', basis='Retained coordinator result'),
+            ])
+            for _ in range(2):
+                result = contexts(config)
+                self.assertEqual(result['Codex', 'parent']['project'], 'Example')
+                self.assertEqual(result['Codex', 'child']['project'], 'Example')
+                self.assertEqual(result['Codex', 'archived-review']['basis'], 'Retained coordinator result')
+                self.assertEqual(result['Codex', 'archived-review']['activity'], 'Reviews & audits')

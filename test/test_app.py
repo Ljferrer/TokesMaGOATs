@@ -1,4 +1,6 @@
 import json
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 import tempfile
 import unittest
@@ -18,6 +20,16 @@ class UsageTests(unittest.TestCase):
         return p
     def config(self, provider):
         return {'timezone':'America/Los_Angeles','sources':[{'provider':provider,'path':str(self.root)}]}
+    def test_project_override_survives_repeated_sync_without_changing_usage(self):
+        self.write('fixture.jsonl', [dict(type='assistant', timestamp='2026-09-10T01:00:00Z',
+            sessionId='fixture', cwd='/tmp/fixture', message=dict(id='m1', model='test', usage=dict(input_tokens=10, output_tokens=3)))])
+        config = self.config('Claude Code')
+        config['session_project_overrides'] = [dict(provider='Claude Code', session='fixture', project='Example', basis='Verified native task')]
+        for _ in range(2):
+            sync(self.db, config)
+            with closing(sqlite3.connect(self.db)) as db:
+                self.assertEqual(db.execute('SELECT project,basis FROM session_topics').fetchone(), ('Example', 'Verified native task'))
+            self.assertEqual(summary(self.db, config)['totals']['total'], 13)
     def test_claude_stream_duplicates_subagents_and_midnight(self):
         x={'type':'assistant','timestamp':'2026-09-10T01:00:00Z','sessionId':'parent','message':{'id':'m1','model':'test','usage':{'input_tokens':10,'cache_read_input_tokens':20,'cache_creation_input_tokens':5,'output_tokens':3}}}
         p=self.write('subagents/a.jsonl',[x,x])
